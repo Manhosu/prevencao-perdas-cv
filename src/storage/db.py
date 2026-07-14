@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
 
-def _ensure_ts_utc_tem_fuso(ts_utc: str) -> None:
+def _ensure_ts_utc_has_timezone(ts_utc: str) -> None:
     """`list_events` depende de comparação lexicográfica de strings
     ISO-8601 em UTC para ordenar por data. Um `ts_utc` naive (sem fuso,
     ex.: `datetime.now().isoformat()`) quebra essa ordenação em silêncio —
@@ -100,7 +100,7 @@ class Database:
         image_path: str | None,
         clip_path: str | None,
     ) -> int:
-        _ensure_ts_utc_tem_fuso(ts_utc)
+        _ensure_ts_utc_has_timezone(ts_utc)
         with self._lock:
             with self._conn:
                 cur = self._conn.execute(
