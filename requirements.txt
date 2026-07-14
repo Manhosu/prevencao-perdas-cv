@@ -1,0 +1,22 @@
+# Alvo: Python 3.13 (esta maquina: 3.13.3).
+# Os pins originais do brief assumiam Python 3.11; os que nao tem wheel para
+# cp313 (ou que ja foram superados pelo resolvedor) foram relaxados.
+# Desvios documentados em .superpowers/sdd/task-1-report.md.
+
+# Visao / inferencia
+ultralytics>=8.3
+opencv-python>=5.0          # brief: 4.10.* — instalado 5.0.0.93
+numpy>=2.1,<2.6             # brief: <2.2 — instalado 2.5.1
+openvino>=2025.0            # brief: 2024.* — sem wheel para cp313
+onnxruntime>=1.20
+
+# Aplicacao / infra
+pydantic>=2,<3
+requests>=2.32              # brief: 2.32.* — instalado 2.34.2
+PySide6>=6.8
+imageio-ffmpeg>=0.6         # brief: 0.5.* — instalado 0.6.0
+psutil>=6                   # brief: 6.* — instalado 7.2.2
+
+# Testes
+pytest>=8                   # brief: 8.* — instalado 9.1.1
+pytest-timeout>=2,<3
