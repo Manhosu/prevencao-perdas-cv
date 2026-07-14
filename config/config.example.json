@@ -1,0 +1,35 @@
+{
+  "store": { "id": "mercado-piloto", "name": "Mercado Piloto" },
+  "telegram": {
+    "bot_token": "COLOCAR_TOKEN_DO_BOTFATHER",
+    "chat_id": "COLOCAR_ID_DO_GRUPO",
+    "send_photo": true,
+    "send_clip": true,
+    "rate_limit_per_min": 15
+  },
+  "inference": {
+    "device": "openvino",
+    "person_model": "models/yolo11n.pt",
+    "pose_model": "models/yolo11n-pose.pt",
+    "detect_size": 640,
+    "pose_on_crop": true,
+    "workers": 2,
+    "detect_bags": true
+  },
+  "detection": {
+    "threshold": 0.6,
+    "dwell_seconds": 1.2,
+    "window_seconds": 3.0,
+    "cooldown_seconds": 30.0
+  },
+  "evidence": { "dir": "evidence", "retention_days": 30 },
+  "watchdog": { "offline_after_seconds": 30.0, "notify": true },
+  "cameras": [
+    {
+      "name": "Corredor Bebidas",
+      "rtsp_url": "rtsp://user:senha@192.168.0.10:554/cam/realmonitor?channel=7&subtype=1",
+      "target_fps": 5,
+      "zones": [[[0.2, 0.3], [0.8, 0.3], [0.8, 0.9], [0.2, 0.9]]]
+    }
+  ]
+}
