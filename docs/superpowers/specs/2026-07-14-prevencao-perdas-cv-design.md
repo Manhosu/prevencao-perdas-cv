@@ -73,7 +73,7 @@ Processo único, multi-thread. Fluxo de dados unidirecional, sem estado comparti
              ├─ nenhuma pessoa dentro da zona → descarta (modo econômico)
              └─ há pessoa ↓
            PoseEstimator (YOLO-pose no RECORTE de cada pessoa)
-           Tracker (ByteTrack → track_id estável)
+           Tracker (associação IoU + idade → track_id estável)
            ConcealmentAnalyzer (estado por track_id) → score
              └─ score ≥ limiar & cooldown ok → EventBus.publish(ConcealmentEvent)
 
@@ -112,7 +112,7 @@ prevencao-perdas-cv/
 │   ├── detection/
 │   │   ├── person_gate.py           # pessoa dentro do polígono da zona?
 │   │   ├── pose_estimator.py        # keypoints COCO-17 no recorte da pessoa
-│   │   ├── tracker.py               # ByteTrack → track_id
+│   │   ├── tracker.py               # associação IoU + idade → track_id
 │   │   ├── body_frame.py            # sistema de coordenadas do corpo + zonas de ocultação
 │   │   └── concealment.py           # sinais + score + máquina de estados por track
 │   ├── evidence/
@@ -409,7 +409,7 @@ A tabela acima é o motivo pelo qual é possível entregar o sistema **completo 
 |---|---|---|
 | **F0** | Scaffold, config pydantic, SQLite, DVR simulado (MediaMTX), CI de testes | Não |
 | **F1** | Captura RTSP multi-câmera, reconexão, heartbeat, UI ao vivo | Não |
-| **F2** | Engine (YOLO + OpenVINO), gate de pessoa, pose no recorte, ByteTrack, benchmark | Não |
+| **F2** | Engine (YOLO + OpenVINO), gate de pessoa, pose no recorte, tracking, benchmark | Não |
 | **F3** ★ | `body_frame` + `concealment` (TDD com keypoints sintéticos), replay, sweep | Não |
 | **F4** | Evidência (imagem + clipe + SQLite), Telegram, watchdog, retenção | Só token/chat_id |
 | **F5** | Editor de zonas, abas de eventos/config, instalador, manual | Não |
@@ -440,4 +440,5 @@ Só a **F6** depende do material do Adriano. Todas as outras podem ser concluíd
 | Detecção | **YOLO11n / YOLO11n-pose** | Sucessor direto do YOLOv8n citado no README, mesmo custo, melhor acurácia |
 | Aceleração | **OpenVINO em CPU**, com fallback ONNX/PyTorch | PDV de mercado costuma ser Intel sem GPU |
 | Pose | **no recorte da pessoa** | Resolução efetiva muito maior em pessoa pequena (câmera de teto) e mais barato |
+| Tracking | **associação IoU + idade**, não o ByteTrack do Ultralytics | O ByteTrack embutido só funciona via `model.track()`, que reprocessa o frame inteiro e não aceita detecções externas — o que quebraria o gate (nosso ganho de desempenho) e acoplaria `detection/` ao modelo. Com câmera fixa, 5 FPS e poucas pessoas, associação por IoU entrega a mesma estabilidade de `track_id` e é testável sem modelo |
 | Nº de câmeras | **N configurável**, 5 como compromisso | Pedido do cliente; o limite real é medido pelo benchmark |
