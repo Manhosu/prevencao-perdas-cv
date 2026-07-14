@@ -54,3 +54,14 @@ def test_camera_state_values():
     assert CameraState.ONLINE.value == "online"
     assert CameraState.OFFLINE.value == "offline"
     assert CameraState.RECONNECTING.value == "reconnecting"
+
+
+def test_bbox_clip_keeps_box_inside_frame():
+    # caixa que estoura as duas bordas do frame de 100x50
+    b = BBox(-10, -5, 130, 80).clip(100, 50)
+    assert (b.x1, b.y1, b.x2, b.y2) == (0.0, 0.0, 100.0, 50.0)
+
+
+def test_bbox_clip_leaves_inner_box_untouched():
+    b = BBox(10, 10, 40, 30).clip(100, 50)
+    assert (b.x1, b.y1, b.x2, b.y2) == (10.0, 10.0, 40.0, 30.0)
