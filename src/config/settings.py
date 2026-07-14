@@ -13,6 +13,58 @@ class ConfigError(Exception):
     """Erro de configuração legível para o usuário final (vai para a UI)."""
 
 
+# Tradução dos tipos de erro mais comuns do pydantic para uma explicação em
+# português, sem jargão (nada de "extra_forbidden" nem link para a doc do
+# pydantic). Quem lê essa mensagem é um técnico instalador, não programador.
+_PYDANTIC_ERROR_TRANSLATIONS: dict[str, str] = {
+    "extra_forbidden": "campo desconhecido",
+    "missing": "campo obrigatório ausente",
+    "float_parsing": "valor deve ser um número",
+    "int_parsing": "valor deve ser um número",
+    "bool_parsing": "valor deve ser verdadeiro ou falso",
+    "greater_than": "valor fora da faixa permitida",
+    "greater_than_equal": "valor fora da faixa permitida",
+    "less_than": "valor fora da faixa permitida",
+    "less_than_equal": "valor fora da faixa permitida",
+}
+
+
+def _format_error_loc(loc: tuple) -> str:
+    """Formata o caminho de um erro (ex.: ('guards', 'min_person_px')) como
+    'guards.min_person_px', legível para quem não é programador."""
+    parts: list[str] = []
+    for item in loc:
+        if isinstance(item, int):
+            if parts:
+                parts[-1] = f"{parts[-1]}[{item}]"
+            else:
+                parts.append(f"[{item}]")
+        else:
+            parts.append(str(item))
+    return ".".join(parts)
+
+
+def format_validation_error(exc: ValidationError) -> str:
+    """Converte um ValidationError do pydantic (a lista estruturada de
+    exc.errors(), não o __str__ cru) em texto em português, uma linha por
+    erro, no formato 'campo: explicação'. Nunca deixa vazar jargão do
+    pydantic (tipos como 'extra_forbidden') nem o link para a doc."""
+    lines: list[str] = []
+    for err in exc.errors():
+        field = _format_error_loc(err.get("loc", ()))
+        err_type = err.get("type", "")
+        if err_type == "value_error":
+            # Erro de um @field_validator com raise ValueError(...) — a
+            # mensagem do próprio validador já está em português.
+            explanation = str(err.get("msg", "")).removeprefix("Value error, ")
+        else:
+            explanation = _PYDANTIC_ERROR_TRANSLATIONS.get(
+                err_type, "valor inválido"
+            )
+        lines.append(f"{field}: {explanation}" if field else explanation)
+    return "\n".join(lines)
+
+
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -27,31 +79,31 @@ class TelegramConfig(_Strict):
     chat_id: str = ""
     send_photo: bool = True
     send_clip: bool = True
-    rate_limit_per_min: int = 15
+    rate_limit_per_min: int = Field(default=15, gt=0)
 
 
 class InferenceConfig(_Strict):
     device: str = "openvino"  # openvino | onnx | cpu
     person_model: str = "models/yolo11n.pt"
     pose_model: str = "models/yolo11n-pose.pt"
-    detect_size: int = 640
+    detect_size: int = Field(default=640, ge=32)
     pose_on_crop: bool = True
-    workers: int = 2
+    workers: int = Field(default=2, ge=1)
     detect_bags: bool = True
 
 
 class Weights(_Strict):
-    dwell: float = 0.40
-    approach: float = 0.20
-    vanish: float = 0.30
-    retract: float = 0.10
+    dwell: float = Field(default=0.40, ge=0.0, le=1.0)
+    approach: float = Field(default=0.20, ge=0.0, le=1.0)
+    vanish: float = Field(default=0.30, ge=0.0, le=1.0)
+    retract: float = Field(default=0.10, ge=0.0, le=1.0)
 
 
 class ZoneWeights(_Strict):
-    waist: float = 1.00
-    torso: float = 0.95
-    back_waist: float = 1.05
-    bag: float = 1.00
+    waist: float = Field(default=1.00, ge=0.0, le=2.0)
+    torso: float = Field(default=0.95, ge=0.0, le=2.0)
+    back_waist: float = Field(default=1.05, ge=0.0, le=2.0)
+    bag: float = Field(default=1.00, ge=0.0, le=2.0)
 
 
 class Geometry(_Strict):
@@ -64,20 +116,20 @@ class Geometry(_Strict):
 
 
 class Guards(_Strict):
-    kp_conf_min: float = 0.35
-    pose_quality_min: float = 0.40
-    min_person_px: int = 120
-    vanish_grace_seconds: float = 0.4
-    vanish_max_seconds: float = 3.0
-    gap_frames: int = 2
-    track_lost_seconds: float = 2.0
+    kp_conf_min: float = Field(default=0.35, ge=0.0, le=1.0)
+    pose_quality_min: float = Field(default=0.40, ge=0.0, le=1.0)
+    min_person_px: int = Field(default=120, gt=0)
+    vanish_grace_seconds: float = Field(default=0.4, gt=0)
+    vanish_max_seconds: float = Field(default=3.0, gt=0)
+    gap_frames: int = Field(default=2, ge=0)
+    track_lost_seconds: float = Field(default=2.0, gt=0)
 
 
 class DetectionConfig(_Strict):
-    threshold: float = 0.60
-    dwell_seconds: float = 1.2
-    window_seconds: float = 3.0
-    cooldown_seconds: float = 30.0
+    threshold: float = Field(default=0.60, ge=0.0, le=1.0)
+    dwell_seconds: float = Field(default=1.2, gt=0)
+    window_seconds: float = Field(default=3.0, gt=0)
+    cooldown_seconds: float = Field(default=30.0, gt=0)
     weights: Weights = Field(default_factory=Weights)
     zone_weights: ZoneWeights = Field(default_factory=ZoneWeights)
     geometry: Geometry = Field(default_factory=Geometry)
@@ -86,7 +138,7 @@ class DetectionConfig(_Strict):
 
 class EvidenceConfig(_Strict):
     dir: str = "evidence"
-    retention_days: int = 30
+    retention_days: int = Field(default=30, ge=1)
     clip_pre_seconds: float = 2.0
     clip_post_seconds: float = 4.0
 
@@ -103,7 +155,7 @@ class CameraConfig(_Strict):
     name: str
     rtsp_url: str
     enabled: bool = True
-    target_fps: float = 5.0
+    target_fps: float = Field(default=5.0, gt=0, le=30)
     zones: list[Polygon] = Field(default_factory=list)
     overrides: dict[str, Any] = Field(default_factory=dict)
 
@@ -123,15 +175,21 @@ class CameraConfig(_Strict):
     def effective_detection(self, base: DetectionConfig) -> DetectionConfig:
         """Aplica os overrides desta câmera sobre a configuração global.
         Câmera de teto e câmera lateral não compartilham o mesmo limiar —
-        é isso que torna a calibração por câmera possível."""
+        é isso que torna a calibração por câmera possível.
+
+        Sempre devolve um DetectionConfig independente: mesmo sem overrides,
+        devolve uma cópia profunda de `base`, nunca o objeto global por
+        referência — do contrário, código que mutasse o retorno corromperia
+        silenciosamente o default compartilhado por todas as câmeras."""
         if not self.overrides:
-            return base
+            return base.model_copy(deep=True)
         merged = _deep_merge(base.model_dump(), self.overrides)
         try:
             return DetectionConfig(**merged)
         except ValidationError as e:
             raise ConfigError(
-                f"overrides inválidos na câmera '{self.name}': {e}"
+                f"overrides inválidos na câmera '{self.name}':\n"
+                f"{format_validation_error(e)}"
             ) from e
 
 
@@ -174,9 +232,18 @@ class AppConfig(_Strict):
         except json.JSONDecodeError as e:
             raise ConfigError(f"JSON inválido em {p}: {e}") from e
         try:
-            return cls(**data)
+            cfg = cls(**data)
         except ValidationError as e:
-            raise ConfigError(f"configuração inválida em {p}:\n{e}") from e
+            raise ConfigError(
+                f"configuração inválida em {p}:\n{format_validation_error(e)}"
+            ) from e
+        # Um typo em `overrides` (ex.: "threshhold" em vez de "threshold")
+        # não pode sobreviver ao load: se não fosse validado aqui, o sistema
+        # só quebraria muito depois, quando algum módulo chamasse
+        # effective_detection() — e o técnico instalador já teria ido embora.
+        for camera in cfg.cameras:
+            camera.effective_detection(cfg.detection)
+        return cfg
 
     def save(self, path: str | Path) -> None:
         Path(path).write_text(

@@ -102,3 +102,72 @@ def test_detection_defaults_match_spec():
     assert d.geometry.torso_x_max == 0.55
     assert d.guards.vanish_max_seconds == 3.0
     assert d.zone_weights.back_waist == 1.05
+
+
+# --- Correções pós-revisão da Task 2 ---
+
+
+def test_load_rejects_typo_in_camera_override(tmp_path):
+    """Um typo em overrides (ex.: 'threshhold' em vez de 'threshold') tem que
+    quebrar no instante do load(), não só quando effective_detection() for
+    chamado por outro módulo mais tarde."""
+    p = _minimal(tmp_path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["cameras"][0]["overrides"] = {"threshhold": 0.9}
+    p.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        AppConfig.load(p)
+
+
+def test_error_message_is_translated_without_pydantic_jargon(tmp_path):
+    """A mensagem que chega no ConfigError precisa ser legível por um técnico
+    instalador: sem 'extra_forbidden', sem link para a documentação do
+    pydantic, e com o nome do campo problemático identificável."""
+    p = _minimal(tmp_path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["cameras"][0]["overrides"] = {"guards": {"min_persn_px": 60}}
+    p.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ConfigError) as exc_info:
+        AppConfig.load(p)
+    msg = str(exc_info.value)
+    assert "extra_forbidden" not in msg
+    assert "errors.pydantic.dev" not in msg
+    assert "min_persn_px" in msg
+
+
+def test_effective_detection_without_overrides_returns_independent_copy(tmp_path):
+    """Sem overrides, effective_detection() não pode devolver o mesmo objeto
+    global por referência — quem receber o retorno e mutá-lo não pode
+    corromper o default compartilhado entre câmeras."""
+    cfg = AppConfig.load(_minimal(tmp_path))
+    eff = cfg.cameras[0].effective_detection(cfg.detection)
+    assert eff is not cfg.detection
+    eff.threshold = 0.99
+    assert cfg.detection.threshold == 0.60
+
+
+def test_load_rejects_threshold_out_of_range(tmp_path):
+    p = _minimal(tmp_path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["detection"] = {"threshold": -5.0}
+    p.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        AppConfig.load(p)
+
+
+def test_invalid_json_raises_config_error(tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text("{ isso nao eh json valido ][", encoding="utf-8")
+    with pytest.raises(ConfigError, match="JSON inválido"):
+        AppConfig.load(p)
+
+
+def test_save_then_load_round_trips(tmp_path):
+    cfg = AppConfig.load(_minimal(tmp_path))
+    saved_path = tmp_path / "config_saved.json"
+    cfg.save(saved_path)
+    reloaded = AppConfig.load(saved_path)
+    assert reloaded.store.id == cfg.store.id
+    assert reloaded.detection.threshold == cfg.detection.threshold
+    assert reloaded.cameras[0].name == cfg.cameras[0].name
+    assert reloaded.cameras[0].zones == cfg.cameras[0].zones
