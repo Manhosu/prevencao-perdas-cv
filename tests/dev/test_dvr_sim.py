@@ -145,7 +145,7 @@ def test_record_writes_the_real_measured_fps_not_the_requested_one(tmp_path):
     assert written_fps > bogus_requested_fps * 2
 
     duration = frame_count / written_fps
-    assert duration == pytest.approx(seconds, rel=0.35)
+    assert duration == pytest.approx(seconds, rel=0.10)
 
 
 def test_next_path_uses_max_existing_index_plus_one(tmp_path):
@@ -169,3 +169,43 @@ def test_next_path_never_overwrites_existing_file(tmp_path):
 
     assert path.name != "normal_01.mp4"
     assert not path.exists()
+
+
+def test_dvr_sim_rtp_port_is_even_even_with_odd_rtsp_port(tmp_path):
+    """RTP exige porta par. Se a porta RTSP for ímpar, o DVRSim deve
+    derivar uma porta RTP par mesmo assim, evitando 'ERR RTP port must
+    be even' do MediaMTX."""
+    from pathlib import Path
+
+    video = tmp_path / "cam1.mp4"
+    synthetic_video(video, seconds=1, fps=10, size=(320, 240))
+
+    # Porto RTSP ímpar proposital
+    sim = DvrSim({"ch1": video}, port=19555)
+    sim.start()
+
+    # Inspeciona o YAML gerado para verificar que a porta RTP é par
+    cfg_path = Path("dev/bin") / f"mediamtx-{sim.port}.yml"
+    cfg_text = cfg_path.read_text(encoding="utf-8")
+
+    # Extrai os valores de porta do YAML
+    import re
+
+    rtp_match = re.search(r"rtpAddress: :(\d+)", cfg_text)
+    rtcp_match = re.search(r"rtcpAddress: :(\d+)", cfg_text)
+    assert rtp_match, "não achou rtpAddress no YAML"
+    assert rtcp_match, "não achou rtcpAddress no YAML"
+
+    rtp_port = int(rtp_match.group(1))
+    rtcp_port = int(rtcp_match.group(1))
+
+    assert rtp_port % 2 == 0, (
+        f"RTP port {rtp_port} é ímpar, mas RTP exige porta par "
+        "(MediaMTX morre com 'ERR RTP port must be even')"
+    )
+    assert rtcp_port == rtp_port + 1, (
+        f"RTCP port {rtcp_port} deveria ser {rtp_port + 1} "
+        "(a porta ímpar seguinte após RTP)"
+    )
+
+    sim.stop()

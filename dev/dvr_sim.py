@@ -17,6 +17,28 @@ MEDIAMTX_VERSION = "v1.9.3"
 BIN_DIR = Path("dev/bin")
 
 
+def _safe_unlink(path: Path, max_retries: int = 3) -> None:
+    """Tenta apagar um arquivo com retentativas curtas em caso de
+    PermissionError (arquivo travado, antivírus escaneando, mapeamento
+    de imagem do processo em liberação). Levanta erro em português se
+    todas as tentativas falharem."""
+    for attempt in range(max_retries):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError as e:
+            if attempt < max_retries - 1:
+                time.sleep(0.1 * (attempt + 1))  # backoff: 100ms, 200ms, 300ms
+            else:
+                raise RuntimeError(
+                    f"Não foi possível apagar {path} após {max_retries} tentativas. "
+                    f"O arquivo pode estar travado por um processo ou antivírus. "
+                    f"Feche todos os aplicativos que possam estar usando o arquivo, "
+                    f"apague-o manualmente e rode de novo.\n"
+                    f"Detalhes técnicos: {e}"
+                ) from e
+
+
 def _binary_is_healthy(exe: Path) -> bool:
     """Roda `mediamtx --version` para confirmar que o binário não está
     corrompido. Sem isso, um download/extração interrompidos (Ctrl+C,
@@ -43,7 +65,7 @@ def _mediamtx_binary() -> Path:
             "(download ou extração anterior deve ter sido interrompida); "
             "apagando e baixando de novo."
         )
-        exe.unlink(missing_ok=True)
+        _safe_unlink(exe)
 
     BIN_DIR.mkdir(parents=True, exist_ok=True)
     asset = (
@@ -63,10 +85,10 @@ def _mediamtx_binary() -> Path:
             z.extractall(BIN_DIR)
     else:
         shutil.unpack_archive(str(dest), str(BIN_DIR))
-    dest.unlink(missing_ok=True)
+    _safe_unlink(dest)
 
     if not _binary_is_healthy(exe):
-        exe.unlink(missing_ok=True)
+        _safe_unlink(exe)
         raise RuntimeError(
             f"[dvr_sim] o binário do MediaMTX baixado em {exe} está "
             "corrompido ('mediamtx --version' falhou). Verifique a conexão "
@@ -101,11 +123,16 @@ class DvrSim:
         # segunda morre com "bind: só uma utilização de cada endereço de
         # soquete é permitida". SRT não é usado por este simulador, então
         # fica desligado.
+        # RTP exige porta par; se a porta RTSP base for ímpar, derivamos
+        # uma RTP base que seja par, e RTCP é RTP+1 (ímpar, como esperado).
+        rtp_base = self.port + 100
+        if rtp_base % 2 != 0:  # se ímpar, torna par
+            rtp_base += 1
         cfg.write_text(
             f"rtspAddress: :{self.port}\n"
-            f"rtpAddress: :{self.port + 100}\n"
-            f"rtcpAddress: :{self.port + 101}\n"
-            f"srtAddress: :{self.port + 102}\n"
+            f"rtpAddress: :{rtp_base}\n"
+            f"rtcpAddress: :{rtp_base + 1}\n"
+            f"srtAddress: :{rtp_base + 2}\n"
             "hls: no\nwebrtc: no\nrtmp: no\napi: no\nsrt: no\n"
             "paths:\n  all_others:\n",
             encoding="utf-8",
