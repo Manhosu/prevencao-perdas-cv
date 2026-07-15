@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from src.config.settings import AppConfig, ConfigError, DetectionConfig
 
@@ -171,3 +172,32 @@ def test_save_then_load_round_trips(tmp_path):
     assert reloaded.detection.threshold == cfg.detection.threshold
     assert reloaded.cameras[0].name == cfg.cameras[0].name
     assert reloaded.cameras[0].zones == cfg.cameras[0].zones
+
+
+# --- Correção pós-revisão de fechamento do Plano 2 (vazamento de approach) ---
+
+
+def test_rejects_cooldown_shorter_than_window():
+    """cooldown_seconds < window_seconds permite que uma reentrada incidental
+    na zona, logo depois do cooldown expirar, ainda encontre observações de
+    punho da janela anterior — reabrindo o vazamento de approach que o gate
+    de assinatura real deveria eliminar. A mensagem tem que ser em português
+    e mencionar os dois campos envolvidos."""
+    with pytest.raises(ValidationError, match="cooldown_seconds"):
+        DetectionConfig(cooldown_seconds=1.0, window_seconds=3.0)
+
+
+def test_default_cooldown_and_window_are_valid():
+    """Os defaults (cooldown 30.0, window 3.0) já respeitam a invariante —
+    não pode levantar."""
+    DetectionConfig()
+
+
+def test_camera_override_rejects_cooldown_shorter_than_window(tmp_path):
+    """effective_detection() reconstrói o DetectionConfig a partir do merge
+    de overrides — a invariante cooldown>=window precisa valer também para
+    overrides por câmera, não só para o objeto global."""
+    cfg = AppConfig.load(_minimal(tmp_path))
+    cfg.cameras[0].overrides = {"cooldown_seconds": 1.0, "window_seconds": 3.0}
+    with pytest.raises(ConfigError, match="cooldown_seconds"):
+        cfg.cameras[0].effective_detection(cfg.detection)

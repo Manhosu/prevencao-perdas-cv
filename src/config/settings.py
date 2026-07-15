@@ -6,7 +6,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 class ConfigError(Exception):
@@ -134,6 +141,25 @@ class DetectionConfig(_Strict):
     zone_weights: ZoneWeights = Field(default_factory=ZoneWeights)
     geometry: Geometry = Field(default_factory=Geometry)
     guards: Guards = Field(default_factory=Guards)
+
+    @model_validator(mode="after")
+    def _cooldown_covers_window(self) -> "DetectionConfig":
+        """O cooldown precisa ser pelo menos tão longo quanto a janela
+        deslizante de observações do punho. Se fosse mais curto, uma pessoa
+        poderia reentrar na zona logo depois do cooldown expirar e ainda
+        encontrar, na janela, observações (approach) do episódio que acabou
+        de disparar — reabrindo o vazamento que o gate approach-ou-vanish
+        existe para eliminar."""
+        if self.cooldown_seconds < self.window_seconds:
+            raise ValueError(
+                "cooldown_seconds precisa ser maior ou igual a window_seconds "
+                f"(recebido cooldown_seconds={self.cooldown_seconds}, "
+                f"window_seconds={self.window_seconds}): um cooldown mais "
+                "curto que a janela permite reprocessar observações antigas "
+                "do punho assim que o cooldown expira, causando um segundo "
+                "disparo espúrio"
+            )
+        return self
 
 
 class EvidenceConfig(_Strict):

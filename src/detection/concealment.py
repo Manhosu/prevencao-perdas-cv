@@ -20,12 +20,16 @@ WRISTS = (KP["left_wrist"], KP["right_wrist"])
 
 # Uma ocultação real sempre tem uma destas assinaturas físicas: a mão CHEGA
 # à zona vindo da prateleira (approach) ou o punho SOME dentro da zona
-# (vanish). Mão incidentalmente perto do corpo (movimento normal numa loja)
-# não tem nenhuma das duas — só dwell puro. Por isso um disparo exige
-# approach OU vanish além de score+dwell (medido em footage real: dwell
-# puro sozinho gera ~344 falsos-positivos/hora). Limiares fixos aqui (não
-# em DetectionConfig) porque não fazem parte da superfície de calibração —
-# são o gate estrutural do que conta como "assinatura real".
+# (vanish). Mão incidentalmente perto do corpo (movimento normal numa loja —
+# braços cruzados, mão no bolso enquanto anda, ajeitando a roupa) não tem
+# nenhuma das duas: ela fica na zona por dwell puro, e dwell puro sozinho
+# dispararia o limiar em qualquer permanência prolongada perto do corpo, sem
+# nenhuma relação com furto. Por isso um disparo exige approach OU vanish
+# além de score+dwell — a mão precisa ter uma origem física plausível (veio
+# de fora, da prateleira) ou ter desaparecido de vista; só "ficar parada
+# perto do corpo" não basta. Limiares fixos aqui (não em DetectionConfig)
+# porque não fazem parte da superfície de calibração — são o gate estrutural
+# do que conta como "assinatura real".
 APPROACH_LATCH_THRESHOLD = 0.3
 VANISH_STRONG_THRESHOLD = 0.5
 
@@ -163,6 +167,15 @@ class ConcealmentAnalyzer:
             st.state = State.COOLDOWN
             st.cooldown_until = ts + self.cfg.cooldown_seconds
             st.episode_had_approach = False  # o próximo gesto é um novo episódio
+            # Limpa o histórico dos punhos: sem isso, as observações do
+            # episódio que acabou de disparar (reach, entrada na zona,
+            # vanish) continuam na janela deslizante depois do cooldown
+            # expirar. Uma reentrada incidental logo em seguida recomputaria
+            # approach/dwell a partir desse dado velho — exatamente o
+            # vazamento que o gate approach-ou-vanish existe para eliminar.
+            # Um novo episódio tem que exigir evidência nova.
+            for hist in st.wrists.values():
+                hist.observations = []
             return ev
 
         if sig.zone:

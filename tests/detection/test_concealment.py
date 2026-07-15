@@ -166,6 +166,51 @@ def test_incidental_hand_near_body_does_not_fire():
     assert events == []
 
 
+def test_no_refire_from_stale_approach_after_cooldown():
+    """Pessoa faz reach+conceal e dispara. Depois que o cooldown expira, a
+    mão volta INCIDENTALMENTE à zona (visível, SEM novo reach, SEM sumir) —
+    não deve disparar um segundo evento.
+
+    Usa cooldown_seconds == window_seconds (3.0), o menor cooldown válido
+    (a config recusaria cooldown < window). Entre o disparo e a reentrada, o
+    punho fica parado numa posição neutra: (100, 220) não é reach nem zona
+    neste referencial (origem no quadril-médio (100,200), escala 100) —
+    x_n=0.0, y_n=-0.2, fora de waist/torso/reach."""
+    a = ConcealmentAnalyzer(DetectionConfig(cooldown_seconds=3.0, window_seconds=3.0), fps_hint=FPS)
+    fire_frames = [((200, 90), 0.9)] * 3 + [((130, 205), 0.9)] * 2 + [((130, 205), 0.05)] * 8
+    neutral_frames = [((100, 220), 0.9)] * 7   # cobre o resto do cooldown, sem reach/zona
+    reentry_frames = [((130, 205), 0.9)] * 14  # reentrada visível, sem novo reach, sem sumir
+    events = _run(a, fire_frames + neutral_frames + reentry_frames)
+    assert len(events) == 1
+
+
+def test_wrist_history_cleared_on_fire():
+    """A correção principal do vazamento: ao disparar um evento, o histórico
+    de observações dos punhos do track é limpo. Sem essa limpeza, as
+    observações do episódio que acabou de disparar (reach, entrada na zona,
+    vanish) continuam ocupando a janela deslizante depois do cooldown —
+    memória que um novo episódio não deveria herdar. Este teste falha sem a
+    limpeza (histórico não fica vazio) e passa com ela.
+
+    Verifica o estado IMEDIATAMENTE após o frame que dispara (não depois de
+    rodar frames adicionais, que naturalmente reencheriam o histórico com
+    observações novas e mascarariam a ausência da limpeza)."""
+    a = ConcealmentAnalyzer(DetectionConfig(cooldown_seconds=3.0, window_seconds=3.0), fps_hint=FPS)
+    frames = [((200, 90), 0.9)] * 3 + [((130, 205), 0.9)] * 2 + [((130, 205), 0.05)] * 8
+    t = 0.0
+    fired = False
+    for wrist_xy, conf in frames:
+        ev = a.update([_pose(1, wrist_xy, wrist_conf=conf)], [], t)
+        t += DT
+        if ev:
+            fired = True
+            break
+    assert fired
+    st = a._tracks[1]
+    for hist in st.wrists.values():
+        assert hist.observations == []
+
+
 def test_per_track_state_isolation():
     """Duas pessoas: só a que faz o gesto dispara."""
     a = ConcealmentAnalyzer(DetectionConfig(), fps_hint=FPS)
