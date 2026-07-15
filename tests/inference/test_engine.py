@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import numpy as np
@@ -128,6 +129,56 @@ def test_real_model_detects_person_in_recorded_clip():
     kps = eng.pose(frame, [p.bbox for p in persons])
     assert kps[0].shape == (17, 3)
     assert kps[0][:, 2].max() > 0.3, "keypoints sem confiança nenhuma"
+
+
+@pytest.mark.slow
+def test_openvino_pose_survives_repeated_calls():
+    """Regressão do bug crítico da Task 7: export_openvino() sem
+    dynamic=True exporta o modelo de pose com entrada estática 640x640.
+    pose() sempre roda o recorte da pessoa com imgsz=POSE_INPUT (320) — o
+    confirmado ao vivo pelo revisor foi que a 1a chamada passa (o
+    ultralytics silenciosamente sobrescreve 320 pelo 640 do modelo
+    estático, na resolução errada) mas da 2a chamada em diante estoura
+    RuntimeError de shape incompatível (modelo=[1,3,640,640] vs
+    tensor=(1,3,320,320)). Como warmup() só chama pose() uma vez, esse bug
+    dava falso verde no boot do sistema e só quebrava no primeiro frame
+    real com pessoa na loja — device="openvino" é o default de
+    InferenceConfig, então isso afeta a instalação padrão.
+
+    Este teste precisa dos modelos reais em models/ (o ultralytics baixa
+    sozinho na 1a chamada, como os demais testes @pytest.mark.slow deste
+    arquivo já dependem implicitamente)."""
+    eng = InferenceEngine(InferenceConfig(device="openvino"))
+
+    t0 = time.perf_counter()
+    eng.warmup()
+    warmup_ms = (time.perf_counter() - t0) * 1000
+    print(f"\n[openvino] warmup: {warmup_ms:.1f} ms")
+
+    # Recorte "real" (não mockado) passando pelo modelo de pose de verdade,
+    # em imgsz=POSE_INPUT (320) — igual ao que acontece em produção.
+    image = np.zeros((480, 640, 3), dtype=np.uint8)
+    box = BBox(50, 50, 300, 400)
+
+    pose_ms: list[float] = []
+    for i in range(1, 4):
+        t0 = time.perf_counter()
+        kps = eng.pose(image, [box])
+        pose_ms.append((time.perf_counter() - t0) * 1000)
+        assert len(kps) == 1, f"chamada {i}: esperava 1 resultado de pose"
+        assert kps[0].shape == (17, 3), (
+            f"chamada {i}: forma da saída de pose deveria ser (17,3), veio "
+            f"{kps[0].shape}"
+        )
+    print(f"[openvino] pose() x3: {[f'{m:.1f}' for m in pose_ms]} ms")
+
+    # Mesmo mecanismo (export dinâmico) precisa servir os dois caminhos:
+    # detect() roda em detect_size (640) sobre o frame inteiro.
+    t0 = time.perf_counter()
+    persons, _ = eng.detect(image)
+    detect_ms = (time.perf_counter() - t0) * 1000
+    print(f"[openvino] detect(): {detect_ms:.1f} ms")
+    assert isinstance(persons, list)
 
 
 @pytest.mark.slow

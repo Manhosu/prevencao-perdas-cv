@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -21,18 +22,57 @@ COCO_BAGS = {24: "backpack", 26: "handbag"}
 CROP_MARGIN = 0.1  # expande a caixa antes de recortar: pose precisa do contorno
 POSE_INPUT = 320  # o recorte é pequeno; 320 basta e é rápido
 
+# Grava-se ao final de um export bem-sucedido. Um export interrompido (ex.:
+# queda de energia num PDV) não deixa o marcador, então o cache incompleto
+# é detectado como inválido e reexportado na próxima chamada.
+_EXPORT_MARKER = ".export_ok"
+
+
+def _openvino_export_is_valid(out: Path, stem: str) -> bool:
+    """Cache só é confiável se: o diretório existir, tiver os arquivos
+    essenciais do OpenVINO (.xml e .bin do modelo) E o marcador de export
+    bem-sucedido com dynamic=True. Falta qualquer um desses três (export
+    interrompido, diretório corrompido, ou cache antigo exportado sem
+    dynamic=True) e o cache é considerado inválido."""
+    return (
+        out.is_dir()
+        and (out / f"{stem}.xml").is_file()
+        and (out / f"{stem}.bin").is_file()
+        and (out / _EXPORT_MARKER).is_file()
+    )
+
 
 def export_openvino(pt_path: str | Path) -> Path:
-    """Exporta o .pt para OpenVINO uma única vez. O diretório exportado fica
-    ao lado do .pt e é reaproveitado nas execuções seguintes."""
+    """Exporta o .pt para OpenVINO uma única vez, com dynamic=True (entrada de
+    resolução variável). Sem dynamic=True o modelo exportado fica travado na
+    resolução estática 640x640: detect() (imgsz=640) funciona, mas pose()
+    roda no recorte com imgsz=POSE_INPUT (320) e quebra a partir da 2a
+    chamada com RuntimeError de shape incompatível — e como warmup() só
+    chama pose() uma vez, esse bug passava despercebido no boot (falso
+    verde) e só estourava no primeiro frame real com pessoa.
+
+    O diretório exportado fica ao lado do .pt e é reaproveitado nas
+    execuções seguintes, mas só se passar em _openvino_export_is_valid;
+    caso contrário é apagado e reexportado do zero."""
     from ultralytics import YOLO
 
     pt = Path(pt_path)
     out = pt.with_name(f"{pt.stem}_openvino_model")
-    if out.exists():
+    if _openvino_export_is_valid(out, pt.stem):
         return out
+    if out.exists():
+        log.warning(
+            "cache OpenVINO em %s incompleto, corrompido ou exportado sem "
+            "dynamic=True: apagando e reexportando",
+            out,
+        )
+        shutil.rmtree(out)
     log.info("exportando %s para OpenVINO (só na primeira vez)...", pt.name)
-    YOLO(str(pt)).export(format="openvino", half=False)
+    YOLO(str(pt)).export(format="openvino", half=False, dynamic=True)
+    # Só grava o marcador depois do export completar: se o processo morrer
+    # no meio (ex.: queda de energia), nenhum marcador fica gravado e o
+    # cache incompleto é reexportado automaticamente na próxima chamada.
+    (out / _EXPORT_MARKER).write_text("dynamic=True\n", encoding="utf-8")
     return out
 
 
