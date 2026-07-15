@@ -204,6 +204,8 @@ score  = clamp(0, 1, bruto × peso_da_zona × qualidade)
 
 Dispara evento quando `score ≥ threshold` **e** o dwell mínimo foi atingido **e** o cooldown do track está livre. Os pesos, o limiar e todos os tempos são configuráveis — globalmente e por câmera.
 
+**Pesos des-normalizados (dois caminhos de disparo).** Os pesos **não somam 1.0** de propósito (o `clamp` cuida do teto): isso dá dois caminhos independentes de disparo, correspondentes às duas "assinaturas" físicas da ocultação. (1) **Caminho dwell** — mão que fica MUITO tempo na zona (`s_dwell` saturado) já dispara sozinha, mesmo com o punho visível o tempo todo (importante para câmera lateral onde a mão não some). (2) **Caminho vanish** — mão que SOME dentro da zona dispara mesmo com dwell parcial. Se os pesos somassem 1.0, nenhum sinal isolado cruzaria o limiar e o sistema ficaria dependente do `vanish` — um furto com a mão visível passaria. Descoberto testando a Task 3 do Plano 2.
+
 ### 6.5 Máquina de estados (por `track_id`)
 
 ```
@@ -232,7 +234,7 @@ qualquer estado ──track perdido por track_lost_seconds──► descarta o e
 threshold 0.60 · dwell_seconds 1.2 · window_seconds 3.0 · cooldown_seconds 30
 kp_conf_min 0.35 · pose_quality_min 0.40 · min_person_px 120
 vanish_grace_seconds 0.4 · vanish_max_seconds 3.0 · gap_frames 2 · track_lost_seconds 2.0
-pesos: dwell 0.40 · approach 0.20 · vanish 0.30 · retract 0.10
+pesos (des-normalizados): dwell 0.70 · approach 0.25 · vanish 0.55 · retract 0.15
 ```
 
 Estes números são o **ponto de partida**, não a entrega. A calibração com o vídeo real do cliente é que define os finais, e o sweep (§8) é a ferramenta que os encontra.
@@ -263,7 +265,7 @@ Estes números são o **ponto de partida**, não a entrega. A calibração com o
     "dwell_seconds": 1.2,
     "window_seconds": 3.0,
     "cooldown_seconds": 30,
-    "weights": { "dwell": 0.40, "approach": 0.20, "vanish": 0.30, "retract": 0.10 },
+    "weights": { "dwell": 0.70, "approach": 0.25, "vanish": 0.55, "retract": 0.15 },
     "zone_weights": { "waist": 1.0, "torso": 0.95, "back_waist": 1.05, "bag": 1.0 },
     "geometry": { "waist_y": [-0.45, 0.25], "waist_x": [0.10, 0.85],
                   "torso_y": [0.15, 0.85], "torso_x_max": 0.55,
