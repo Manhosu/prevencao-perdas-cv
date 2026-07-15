@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -84,6 +85,16 @@ class InferenceEngine:
         # todo teste unitário viraria download de modelo.
         self._person_model = None
         self._pose_model = None
+        # Serializa detect()/pose(): o predict do Ultralytics/OpenVINO não é
+        # documentado como thread-safe (o infer_request compartilhado é fonte
+        # clássica de corrupção sob chamadas concorrentes), e o benchmark do
+        # projeto MEDIU que rodar workers concorrentes contra o mesmo engine
+        # não ganha nada aqui (fator ~0.85x — o OpenVINO em modo LATENCY já
+        # usa todos os núcleos numa única chamada, então 2 threads disputando
+        # o mesmo predictor só atrapalham uma à outra). Como o ganho de
+        # concorrência é nulo/negativo, o custo do lock é desprezível e
+        # elimina o risco de corrupção do predictor compartilhado.
+        self._infer_lock = threading.Lock()
 
     def _resolve(self, model_path: str) -> Path:
         p = Path(model_path)
@@ -115,30 +126,34 @@ class InferenceEngine:
     def detect(
         self, image: np.ndarray
     ) -> tuple[list[PersonDetection], list[ObjectDetection]]:
-        model = self._ensure_person_model()
-        results = model(
-            image,
-            imgsz=self.cfg.detect_size,
-            classes=sorted(self._wanted),
-            verbose=False,
-        )
-        persons: list[PersonDetection] = []
-        objects: list[ObjectDetection] = []
-        boxes = results[0].boxes
-        if boxes is None or len(boxes) == 0:
-            return persons, objects
+        # Serializado (ver comentário de `_infer_lock` no __init__): sem
+        # ganho de concorrência medido, então o lock só remove risco sem
+        # custo real de desempenho.
+        with self._infer_lock:
+            model = self._ensure_person_model()
+            results = model(
+                image,
+                imgsz=self.cfg.detect_size,
+                classes=sorted(self._wanted),
+                verbose=False,
+            )
+            persons: list[PersonDetection] = []
+            objects: list[ObjectDetection] = []
+            boxes = results[0].boxes
+            if boxes is None or len(boxes) == 0:
+                return persons, objects
 
-        for xyxy, cls, conf in zip(boxes.xyxy, boxes.cls, boxes.conf):
-            x1, y1, x2, y2 = (float(v) for v in np.asarray(xyxy).tolist())
-            c = int(cls)
-            box = BBox(x1, y1, x2, y2)
-            if c == COCO_PERSON:
-                persons.append(PersonDetection(bbox=box, conf=float(conf)))
-            elif self.cfg.detect_bags and c in COCO_BAGS:
-                objects.append(
-                    ObjectDetection(label=COCO_BAGS[c], bbox=box, conf=float(conf))
-                )
-        return persons, objects
+            for xyxy, cls, conf in zip(boxes.xyxy, boxes.cls, boxes.conf):
+                x1, y1, x2, y2 = (float(v) for v in np.asarray(xyxy).tolist())
+                c = int(cls)
+                box = BBox(x1, y1, x2, y2)
+                if c == COCO_PERSON:
+                    persons.append(PersonDetection(bbox=box, conf=float(conf)))
+                elif self.cfg.detect_bags and c in COCO_BAGS:
+                    objects.append(
+                        ObjectDetection(label=COCO_BAGS[c], bbox=box, conf=float(conf))
+                    )
+            return persons, objects
 
     def pose(self, image: np.ndarray, boxes: list[BBox]) -> list[np.ndarray]:
         """Devolve um array (17,3) por caixa, em coordenadas do frame completo.
@@ -146,25 +161,33 @@ class InferenceEngine:
         h, w = image.shape[:2]
         out: list[np.ndarray] = []
 
-        for box in boxes:
-            empty = np.zeros((17, 3), dtype=np.float32)
-            crop_box = box.expand(CROP_MARGIN).clip(w, h) if self.cfg.pose_on_crop else BBox(0, 0, w, h)
-            x1, y1 = int(crop_box.x1), int(crop_box.y1)
-            x2, y2 = int(crop_box.x2), int(crop_box.y2)
-            if x2 - x1 < 2 or y2 - y1 < 2:
-                out.append(empty)
-                continue
+        # Serializado (ver comentário de `_infer_lock` no __init__): N workers
+        # de câmeras diferentes continuam chamando o MESMO InferenceEngine
+        # mesmo depois da correção do Scheduler (que só impede duas chamadas
+        # concorrentes na mesma câmera) — o predict do Ultralytics/OpenVINO
+        # não é documentado como thread-safe, e o benchmark já mediu que
+        # rodar concorrente aqui não ganha nada (fator ~0.85x em modo
+        # LATENCY), então serializar é estritamente seguro e sem custo.
+        with self._infer_lock:
+            for box in boxes:
+                empty = np.zeros((17, 3), dtype=np.float32)
+                crop_box = box.expand(CROP_MARGIN).clip(w, h) if self.cfg.pose_on_crop else BBox(0, 0, w, h)
+                x1, y1 = int(crop_box.x1), int(crop_box.y1)
+                x2, y2 = int(crop_box.x2), int(crop_box.y2)
+                if x2 - x1 < 2 or y2 - y1 < 2:
+                    out.append(empty)
+                    continue
 
-            crop = image[y1:y2, x1:x2]
-            results = self._ensure_pose_model()(crop, imgsz=POSE_INPUT, verbose=False)
-            kp = results[0].keypoints
-            if kp is None or kp.data is None or len(kp.data) == 0:
-                out.append(empty)
-                continue
+                crop = image[y1:y2, x1:x2]
+                results = self._ensure_pose_model()(crop, imgsz=POSE_INPUT, verbose=False)
+                kp = results[0].keypoints
+                if kp is None or kp.data is None or len(kp.data) == 0:
+                    out.append(empty)
+                    continue
 
-            data = np.asarray(kp.data)[0].astype(np.float32).copy()  # (17,3) no recorte
-            data[:, 0] += x1  # de volta para o frame completo
-            data[:, 1] += y1
-            out.append(data)
+                data = np.asarray(kp.data)[0].astype(np.float32).copy()  # (17,3) no recorte
+                data[:, 0] += x1  # de volta para o frame completo
+                data[:, 1] += y1
+                out.append(data)
 
         return out

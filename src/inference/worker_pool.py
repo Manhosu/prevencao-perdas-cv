@@ -63,20 +63,29 @@ class WorkerPool:
                 self._stop.wait(IDLE_SLEEP)
                 continue
 
-            frame = self.slots[cam].get()
-            self.scheduler.mark_served(cam, now)
-            if frame is None:
-                self._stop.wait(IDLE_SLEEP)
-                continue
-
+            # A partir daqui a câmera está reivindicada (in-flight) no
+            # Scheduler: nenhum outro worker vai recebê-la até o release()
+            # abaixo. Isso é o que impede dois workers chamarem
+            # Tracker.update() da mesma câmera ao mesmo tempo — por isso o
+            # release precisa acontecer SEMPRE, mesmo se o slot estiver vazio
+            # ou se process() lançar uma exceção.
             try:
-                had_person = self.process(frame)
-                if had_person:
-                    self.scheduler.mark_activity(cam, now)
-            except Exception:
-                # Um erro de inferência num frame não pode derrubar o worker —
-                # o sistema roda 24/7 numa loja, sem ninguém olhando.
-                log.exception("erro processando frame da câmera '%s'", cam)
+                frame = self.slots[cam].get()
+                self.scheduler.mark_served(cam, now)
+                if frame is None:
+                    self._stop.wait(IDLE_SLEEP)
+                    continue
+
+                try:
+                    had_person = self.process(frame)
+                    if had_person:
+                        self.scheduler.mark_activity(cam, now)
+                except Exception:
+                    # Um erro de inferência num frame não pode derrubar o worker —
+                    # o sistema roda 24/7 numa loja, sem ninguém olhando.
+                    log.exception("erro processando frame da câmera '%s'", cam)
+                finally:
+                    with self._lock:
+                        self._processed += 1
             finally:
-                with self._lock:
-                    self._processed += 1
+                self.scheduler.release(cam)
