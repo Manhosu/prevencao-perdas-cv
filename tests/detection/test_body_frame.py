@@ -85,6 +85,19 @@ def test_fallback_scale_when_hips_missing():
     assert bf.scale == pytest.approx(0.55 * 240, abs=1)
 
 
+def test_quality_reflects_estimated_side():
+    """Quadris 100% ausentes (estimados via bbox) => quality nao pode inflar:
+    e a media (0.9 dos ombros + 0.0 dos quadris)/2 = 0.45, nao 0.9."""
+    kp = _kp(left_shoulder=(90, 100), right_shoulder=(110, 100), nose=(100, 80))
+    bf = BodyFrame.from_keypoints(kp, BBox(80, 60, 120, 300), G)
+    assert bf.quality == pytest.approx(0.45, abs=0.02)
+
+
+def test_quality_full_torso_is_high():
+    bf = BodyFrame.from_keypoints(_upright(), BBox(80, 60, 120, 300), G)
+    assert bf.quality > 0.85
+
+
 def test_returns_none_when_no_torso_and_no_bbox():
     kp = np.zeros((17, 3), dtype=np.float32)
     assert BodyFrame.from_keypoints(kp, BBox(0, 0, 0, 0), G) is None

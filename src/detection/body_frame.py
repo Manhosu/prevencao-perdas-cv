@@ -72,7 +72,11 @@ class BodyFrame:
 
         # Eixo horizontal = perpendicular ao vertical
         v = (-u[1], u[0])
-        quality = (conf_sh + conf_hip) / 2 if (conf_sh and conf_hip) else max(conf_sh, conf_hip)
+        # Qualidade = média das confianças de ombros e quadris. Quando um lado
+        # está ausente (estimado via bbox), sua confiança é 0 e a média cai — a
+        # qualidade reflete honestamente que metade da âncora do tronco é chute,
+        # em vez de mascarar isso com max(). O gate pose_quality_min depende disso.
+        quality = (conf_sh + conf_hip) / 2
 
         # De costas: rosto (nariz + olhos) sem confiança
         face = [kp[KP[n], 2] for n in ("nose", "left_eye", "right_eye")]
