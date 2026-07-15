@@ -13,6 +13,7 @@ from src.capture.frame_slot import LatestFrameSlot
 from src.capture.rtsp_capture import CameraThread
 from src.config.settings import AppConfig
 from src.core.types import CameraState, Frame, ObjectDetection, PersonPose
+from src.detection.concealment import ConcealmentAnalyzer, ConcealmentEvent
 from src.detection.person_gate import PersonGate
 from src.detection.tracker import Tracker
 from src.inference.scheduler import Scheduler
@@ -27,6 +28,7 @@ class FrameResult:
     persons: list[PersonPose] = field(default_factory=list)
     objects: list[ObjectDetection] = field(default_factory=list)
     had_person: bool = False
+    events: list[ConcealmentEvent] = field(default_factory=list)
 
 
 class Pipeline:
@@ -49,6 +51,13 @@ class Pipeline:
         self._trackers: dict[str, Tracker] = {
             c.name: Tracker(
                 max_lost_seconds=c.effective_detection(cfg.detection).guards.track_lost_seconds
+            )
+            for c in self.cameras
+        }
+        self._analyzers: dict[str, ConcealmentAnalyzer] = {
+            c.name: ConcealmentAnalyzer(
+                c.effective_detection(cfg.detection),
+                fps_hint=c.target_fps,
             )
             for c in self.cameras
         }
@@ -75,12 +84,14 @@ class Pipeline:
             # Caminho barato: sem pessoa na zona, nada de pose. É por isso que
             # câmera de corredor vazio quase não custa CPU.
             self._trackers[frame.camera_name].update([], frame.ts)
+            self._analyzers[frame.camera_name].update([], [], frame.ts)
             return FrameResult(frame.camera_name, had_person=False)
 
         tracked = self._trackers[frame.camera_name].update(inside, frame.ts)
         keypoints = self.engine.pose(frame.image, [p.bbox for p in tracked])
         poses = [PersonPose(person=p, keypoints=k) for p, k in zip(tracked, keypoints)]
-        return FrameResult(frame.camera_name, poses, objects, had_person=True)
+        events = self._analyzers[frame.camera_name].update(poses, objects, frame.ts)
+        return FrameResult(frame.camera_name, poses, objects, had_person=True, events=events)
 
     def _on_frame(self, frame: Frame) -> bool:
         result = self.process_frame(frame)
