@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from src.core.types import BBox, PersonDetection
@@ -62,13 +64,16 @@ def test_two_people_do_not_swap_ids():
 # ---------------------------------------------------------------------------
 
 
-def test_ids_survive_two_people_crossing_paths():
-    """Duas pessoas andando uma em direção à outra (~15px/frame) se cruzam
-    perto de uma prateleira — cenário comum de loja, não caso raro. Sem
-    predição de movimento, o associador guloso compara a detecção nova com
-    a última posição PARADA do track; no frame do cruzamento, a posição de
-    A cai sobre onde B estava (e vice-versa), o guloso pareia pela maior
-    sobreposição e troca os ids permanentemente (sem autocorreção).
+@pytest.mark.parametrize("step", [8.0, 15.0, 25.0])
+def test_ids_survive_two_people_crossing_paths(step):
+    """Duas pessoas andando uma em direção à outra (8, 15 e 25px/frame —
+    velocidades usadas na re-revisão da rodada 2 para reconfirmar que o
+    cruzamento continua resolvido) se cruzam perto de uma prateleira —
+    cenário comum de loja, não caso raro. Sem predição de movimento, o
+    associador guloso compara a detecção nova com a última posição PARADA
+    do track; no frame do cruzamento, a posição de A cai sobre onde B
+    estava (e vice-versa), o guloso pareia pela maior sobreposição e troca
+    os ids permanentemente (sem autocorreção).
 
     Confirmado manualmente contra o tracker guloso anterior (sem predição):
     a pessoa A (id 1, começa à esquerda) e a pessoa B (id 2, começa à
@@ -77,7 +82,6 @@ def test_ids_survive_two_people_crossing_paths():
     teste falha nessa implementação e só passa com a predição de movimento.
     """
     t = Tracker(max_lost_seconds=2.0)
-    step = 15.0
 
     ax1, bx1 = 0.0, 400.0
     first = t.update([_p(ax1, 0, ax1 + 50, 150), _p(bx1, 0, bx1 + 50, 150)], ts=0.0)
@@ -161,6 +165,143 @@ def test_id_dropped_after_multiple_empty_frames_beyond_max_lost(gap_frames):
     out = t.update([_p(0, 0, 50, 150)], ts=ts)
     assert out[0].track_id == 2
     assert t.active_ids() == {2}
+
+
+# ---------------------------------------------------------------------------
+# Segunda correção pós-revisão: gating por proximidade para pessoa rápida
+# (Important 2) e corte do custo da associação exaustiva (Important 1).
+# ---------------------------------------------------------------------------
+
+
+def _walk_at_constant_speed(
+    tracker: Tracker, start_x1: float, speed: float, n_frames: int, settle_frames: int = 1
+) -> list[int]:
+    """Simula uma única pessoa (caixa 50x150): aparece, fica parada por
+    `settle_frames` frame(s) — isso é o que estabelece a velocidade inicial
+    do track (mesmo que zero); sem essa amostra extra o track recém-criado
+    nunca tem uma velocidade estimada para o gating usar, ver docstring do
+    módulo — e então anda a `speed` px/frame constante por `n_frames`
+    frames. Devolve a lista de track_ids observados, na ordem (1 entrada
+    para o aparecimento + `settle_frames` + `n_frames`)."""
+    w, h = 50.0, 150.0
+    ts = 0.0
+    x1 = start_x1
+    ids = [tracker.update([_p(x1, 0, x1 + w, h)], ts=ts)[0].track_id]
+    for _ in range(settle_frames):
+        ts += 1.0
+        ids.append(tracker.update([_p(x1, 0, x1 + w, h)], ts=ts)[0].track_id)
+    for _ in range(n_frames):
+        ts += 1.0
+        x1 += speed
+        ids.append(tracker.update([_p(x1, 0, x1 + w, h)], ts=ts)[0].track_id)
+    return ids
+
+
+def test_fast_walker_keeps_id_at_40px_per_frame():
+    """Pessoa única andando rápido a 40px/frame por vários frames mantém o
+    MESMO id do início ao fim. Acima de ~0.6x a largura da caixa por frame
+    (aqui: caixa de 50px de largura -> ~30px), o IoU entre a detecção e a
+    posição PREVISTA cai abaixo de IOU_MATCH_MIN mesmo quando a predição
+    acerta a posição exata — é geometria de interseção de duas caixas
+    deslocadas, não erro de predição (ver item 3 da docstring do módulo).
+    Só a predição de movimento (correção da rodada 1) não resolve isso.
+
+    Confirmado manualmente contra a implementação da rodada 1 (predição de
+    movimento + associação ótima, sem o gating por proximidade desta
+    correção): a partir do frame em que a caminhada rápida começa, cada
+    frame subsequente cria um id novo e o id nunca se estabiliza (ids
+    observados: [1, 1, 2, 3, 4, 5, 6, ...], sempre crescendo) — este teste
+    falha nessa implementação e só passa com o gating por proximidade.
+    """
+    t = Tracker(max_lost_seconds=2.0)
+    ids = _walk_at_constant_speed(t, start_x1=0.0, speed=40.0, n_frames=20)
+    assert len(set(ids)) == 1, f"id não ficou estável: {ids}"
+
+
+def test_fast_walker_keeps_id_at_60px_per_frame_fleeing():
+    """Documenta o comportamento a 60px/frame ('fuga', mais rápido que
+    caminhada) com o track já estabelecido (mesmo cenário de
+    `test_fast_walker_keeps_id_at_40px_per_frame`, só que mais rápido):
+    idealmente o id se mantém, e de fato se mantém — o raio do gating por
+    proximidade (`GATE_FACTOR * max(largura, altura)` da caixa do track,
+    150px de altura para a caixa 50x150 usada aqui) ainda cobre folgadamente
+    essa velocidade. Ver `test_known_limit_speed_without_established_velocity`
+    para o teto residual que de fato existe (não este)."""
+    t = Tracker(max_lost_seconds=2.0)
+    ids = _walk_at_constant_speed(t, start_x1=0.0, speed=60.0, n_frames=20)
+    assert len(set(ids)) == 1, f"id não ficou estável: {ids}"
+
+
+def test_known_limit_speed_without_established_velocity():
+    """Teto residual conhecido, documentado e travado por este teste (não é
+    uma regressão desta correção, é um limite inerente ao design: o gating
+    só vale para tracks que JÁ têm velocidade estimada — ver docstring do
+    módulo e `_proximity_gate_score`). Um track recém-criado (uma única
+    amostra de posição, velocidade ainda desconhecida) depende só do IoU
+    puro no seu primeiro casamento. Se a pessoa já aparece se deslocando
+    mais que ~0.6x a largura da caixa entre a primeira e a segunda detecção
+    — aqui 32px/frame com caixa de 50px de largura, o mesmo valor citado na
+    re-revisão ("a 32-40px/frame o id se perde a cada frame") — essa
+    primeira transição falha, e como o track substituto também nasce sem
+    velocidade, o id nunca se estabiliza (sem `settle_frames`, ao contrário
+    dos dois testes acima). Trava esse comportamento conhecido para que uma
+    mudança futura no bootstrap não regrida silenciosamente."""
+    t = Tracker(max_lost_seconds=2.0)
+    ids = _walk_at_constant_speed(
+        t, start_x1=0.0, speed=32.0, n_frames=10, settle_frames=0
+    )
+    assert len(set(ids)) == len(ids), (
+        f"comportamento conhecido mudou (esperava um id novo a cada frame): {ids}"
+    )
+
+
+def test_stationary_nearby_tracks_do_not_fuse_via_proximity_gating():
+    """Guarda de regressão específica do gating por proximidade: duas
+    pessoas paradas e próximas (fila de caixa) — mesmo depois de ambas
+    terem velocidade estimada (zero, de ficarem paradas) e portanto ambas
+    elegíveis ao gating — não trocam id nem se fundem quando uma pequena
+    oscilação simultânea (35px, abaixo do limiar de IoU puro mas dentro do
+    raio de gating de cada uma) as move uma em direção à outra. O escore de
+    proximidade favorece o track mais próximo (35px de distância própria vs
+    55px do vizinho), então a atribuição ótima preserva o pareamento
+    correto — não é vácuo: uma implementação que gatasse por "qualquer
+    track com velocidade estimada dentro do raio, sem preferir o mais
+    próximo" trocaria os ids aqui."""
+    t = Tracker(max_lost_seconds=2.0)
+    # Duas pessoas paradas, com 40px de vão entre as caixas (sem overlap
+    # entre si) -- estabelece velocidade zero para as duas.
+    first = t.update([_p(0, 0, 50, 150), _p(90, 0, 140, 150)], ts=0.0)
+    id1, id2 = first[0].track_id, first[1].track_id
+    t.update([_p(0, 0, 50, 150), _p(90, 0, 140, 150)], ts=1.0)
+
+    # Movimento simultâneo: T1 anda 35px para a direita, T2 anda 35px para
+    # a esquerda (uma em direção à outra) -- abaixo do limiar de IoU puro
+    # (35 > 0.6*50=30) para as duas, exigindo gating.
+    out = t.update([_p(35, 0, 85, 150), _p(55, 0, 105, 150)], ts=2.0)
+
+    assert out[0].track_id == id1, f"pessoa 1 trocou de id: esperava {id1}, obteve {out[0].track_id}"
+    assert out[1].track_id == id2, f"pessoa 2 trocou de id: esperava {id2}, obteve {out[1].track_id}"
+    assert t.active_ids() == {id1, id2}
+
+
+def test_update_with_six_people_is_fast():
+    """Custo da associação ótima com N=6 (novo teto de
+    `_MAX_EXACT_ASSIGNMENT_SIZE`, baixado de 8 para conter o custo fatorial
+    -- 8! = 40.320 permutações mediu ~43ms por update() antes desta
+    correção; 6! = 720 é sub-milissegundo). Não é um benchmark de precisão
+    (roda em ambiente de CI/dev compartilhado), só uma rede de segurança
+    generosa contra reintroduzir o penhasco fatorial por engano."""
+    t = Tracker(max_lost_seconds=2.0)
+    people = [_p(i * 100.0, 0, i * 100.0 + 50, 150) for i in range(6)]
+    t.update(people, ts=0.0)  # cria os 6 tracks
+
+    moved = [_p(i * 100.0 + 5, 0, i * 100.0 + 55, 150) for i in range(6)]
+    t0 = time.perf_counter()
+    t.update(moved, ts=0.2)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    print(f"\n[tracker] update() com N=6: {elapsed_ms:.3f} ms")
+
+    assert elapsed_ms < 50, f"update() com N=6 muito lento: {elapsed_ms:.3f} ms"
 
 
 class TestIoU:
