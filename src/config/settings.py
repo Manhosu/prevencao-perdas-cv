@@ -93,10 +93,10 @@ class InferenceConfig(_Strict):
 
 
 class Weights(_Strict):
-    dwell: float = Field(default=0.40, ge=0.0, le=1.0)
-    approach: float = Field(default=0.20, ge=0.0, le=1.0)
-    vanish: float = Field(default=0.30, ge=0.0, le=1.0)
-    retract: float = Field(default=0.10, ge=0.0, le=1.0)
+    dwell: float = Field(default=0.70, ge=0.0, le=1.0)
+    approach: float = Field(default=0.25, ge=0.0, le=1.0)
+    vanish: float = Field(default=0.55, ge=0.0, le=1.0)
+    retract: float = Field(default=0.15, ge=0.0, le=1.0)
 
 
 class ZoneWeights(_Strict):

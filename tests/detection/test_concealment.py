@@ -130,6 +130,27 @@ def test_bag_zone_detects_hand_in_backpack():
     assert any(e.zone == "bag" for e in events)
 
 
+def test_long_visible_dwell_fires():
+    """Mão vem da prateleira e entra na cintura, mas o punho fica VISÍVEL o
+    tempo todo (câmera lateral, sem oclusão) — nunca há `vanish`. Mesmo assim,
+    permanência longa o bastante para saturar o dwell (>= dwell_seconds) tem
+    que disparar sozinha, sem depender do sinal `vanish`.
+
+    (140, 190) cai dentro da zona 'waist' neste referencial de corpo (ombros
+    y=100, quadris y=200, escala~100): dx=40, dy=-10 -> x_n=0.4, y_n=0.1,
+    dentro de waist_x=[0.10,0.85] e waist_y=[-0.45,0.25]."""
+    a = ConcealmentAnalyzer(DetectionConfig(), fps_hint=FPS)
+    frames = [((200, 90), 0.9)] * 3             # reach (braço estendido para a prateleira)
+    frames += [((140, 190), 0.9)] * 14          # punho na cintura, sempre visível e confiante
+    events = _run(a, frames)
+    assert len(events) >= 1
+    e = events[0]
+    assert e.track_id == 1
+    assert e.zone in ("waist", "torso")
+    assert e.signals["dwell"] >= 1.0
+    assert e.signals["vanish"] == 0.0
+
+
 def test_per_track_state_isolation():
     """Duas pessoas: só a que faz o gesto dispara."""
     a = ConcealmentAnalyzer(DetectionConfig(), fps_hint=FPS)

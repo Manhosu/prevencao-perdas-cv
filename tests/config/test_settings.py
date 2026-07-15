@@ -28,7 +28,7 @@ def test_loads_with_defaults(tmp_path):
     assert cfg.store.id == "loja1"
     assert cfg.detection.threshold == 0.60
     assert cfg.detection.dwell_seconds == 1.2
-    assert cfg.detection.weights.vanish == 0.30
+    assert cfg.detection.weights.vanish == 0.55
     assert cfg.cameras[0].target_fps == 5.0
     assert cfg.cameras[0].enabled is True
 
