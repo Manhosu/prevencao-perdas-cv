@@ -1,9 +1,12 @@
+import logging
+import math
+
 import numpy as np
 import pytest
 
 from src.config.settings import DetectionConfig
 from src.core.types import BBox, KP, PersonDetection
-from src.tools.calibrate import SweepRow, best_row, sweep
+from src.tools.calibrate import SweepRow, best_row, format_table, sweep
 
 
 class ScriptedEngine:
@@ -66,6 +69,63 @@ def test_best_row_returns_least_false_when_none_meet_ceiling():
     assert best.false_per_hour == 20.0  # a menos ruim
 
 
+def test_best_row_ties_broken_by_lower_false_per_hour():
+    """Duas linhas com o mesmo `detected`: desempata pela de menor falso/hora."""
+    rows = [
+        SweepRow(threshold=0.5, dwell_seconds=1.0, detected=8, total_conceal=10, false_per_hour=4.0),
+        SweepRow(threshold=0.6, dwell_seconds=1.2, detected=8, total_conceal=10, false_per_hour=2.0),
+    ]
+    best = best_row(rows, max_false_per_hour=5.0)
+    assert best.threshold == 0.6
+    assert best.false_per_hour == 2.0
+
+
+def test_best_row_excludes_nan_from_ceiling_even_with_more_detections():
+    """Pasta normal vazia para uma combinação -> false_per_hour = NaN. Mesmo
+    com mais detecções, essa linha não pode ser escolhida como 'respeita o
+    teto' (NaN não é medido, não é uma promessa de zero falsos)."""
+    rows = [
+        SweepRow(threshold=0.5, dwell_seconds=1.0, detected=9, total_conceal=10, false_per_hour=float("nan")),
+        SweepRow(threshold=0.6, dwell_seconds=1.2, detected=7, total_conceal=10, false_per_hour=3.0),
+    ]
+    best = best_row(rows, max_false_per_hour=5.0)
+    assert best.threshold == 0.6
+    assert best.detected == 7
+
+
+def test_best_row_all_nan_is_deterministic():
+    """Se nenhuma linha tem falsos/hora medido, o fallback não pode quebrar
+    (NaN <= NaN é False) e deve devolver algo determinístico."""
+    rows = [
+        SweepRow(threshold=0.5, dwell_seconds=1.0, detected=9, total_conceal=10, false_per_hour=float("nan")),
+        SweepRow(threshold=0.6, dwell_seconds=1.2, detected=7, total_conceal=10, false_per_hour=float("nan")),
+    ]
+    best = best_row(rows, max_false_per_hour=5.0)
+    assert best.threshold == 0.5  # primeira da lista, escolha estável
+    assert math.isnan(best.false_per_hour)
+
+
+def test_format_table_shows_not_measured_for_nan_and_never_prints_nan():
+    rows = [
+        SweepRow(threshold=0.6, dwell_seconds=1.2, detected=8, total_conceal=10, false_per_hour=float("nan")),
+    ]
+    table = format_table(rows)
+    assert "nao medido" in table
+    assert "nan" not in table.lower()
+
+
+def test_format_table_header_and_rows_stay_aligned():
+    rows = [
+        SweepRow(threshold=0.6, dwell_seconds=1.2, detected=8, total_conceal=10, false_per_hour=4.5),
+        SweepRow(threshold=0.7, dwell_seconds=1.5, detected=10, total_conceal=10, false_per_hour=12.34),
+        SweepRow(threshold=0.5, dwell_seconds=1.0, detected=3, total_conceal=10, false_per_hour=float("nan")),
+    ]
+    lines = format_table(rows).split("\n")
+    header, separator, *data_lines = lines
+    assert len(separator) == len(header)
+    assert all(len(line) == len(header) for line in data_lines)
+
+
 @pytest.mark.slow
 def test_sweep_counts_detection_in_conceal_and_false_in_normal(tmp_path):
     """Monta 1 clipe rotulado em cada pasta (ocultacao/ dispara, normal/ não)
@@ -99,3 +159,27 @@ def test_sweep_counts_detection_in_conceal_and_false_in_normal(tmp_path):
     assert row.total_conceal == 1
     assert row.detected == 1  # o clipe de ocultação disparou
     assert row.false_per_hour == 0.0  # o clipe normal não gerou nenhum evento
+
+
+@pytest.mark.slow
+def test_sweep_marks_nan_and_warns_when_normal_folder_has_no_clips(tmp_path, caplog):
+    """Pasta normal/ vazia (sem clipes) -> false_per_hour tem que virar NaN,
+    não 0.0 (0.0 seria uma promessa falsa de 'zero falsos'), e um aviso em
+    português precisa avisar que a medição não rolou."""
+    conceal_dir = tmp_path / "ocultacao"
+    normal_dir = tmp_path / "normal"
+    conceal_dir.mkdir()
+    normal_dir.mkdir()  # normal/ fica vazia de propósito
+
+    conceal_script = [(200, 90, 0.9)] * 3 + [(130, 205, 0.9)] * 2 + [(130, 205, 0.05)] * 10
+    _make_video(conceal_dir / "clip_01.mp4", n=len(conceal_script))
+
+    engine = ScriptedEngine(conceal_script)
+
+    with caplog.at_level(logging.WARNING):
+        rows = sweep(conceal_dir, normal_dir, engine, grid=[(0.6, 1.2)],
+                    base_cfg=DetectionConfig(), every=1)
+
+    assert len(rows) == 1
+    assert math.isnan(rows[0].false_per_hour)
+    assert any("falsos/hora" in rec.message for rec in caplog.records)
