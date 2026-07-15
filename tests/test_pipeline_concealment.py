@@ -44,7 +44,10 @@ def test_pipeline_emits_concealment_event():
     # nenhuma (mesmo problema documentado na Task 3 do Plano 2: posição
     # sintética incoerente com a geometria). Ajustado para (130, 190),
     # que cai em x_n=0.30/y_n=0.10 -> zona "waist" de fato.
-    script = [(160, 130, 0.9)] * 3 + [(130, 190, 0.9)] * 12
+    # A fase inicial usa (200, 90) = reach (y_n=1.1, braço na prateleira):
+    # o disparo agora exige que a ocultação tenha vindo de um reach (approach)
+    # ou que o punho suma (vanish) — mão incidental na zona não dispara mais.
+    script = [(200, 90, 0.9)] * 3 + [(130, 190, 0.9)] * 12
     p = Pipeline(_cfg(), ScriptedEngine(script))
     all_events = []
     t = 0.0
