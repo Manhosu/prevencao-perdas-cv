@@ -73,3 +73,47 @@ def test_replay_no_event_for_normal(tmp_path):
     script = [(160, 120, 0.9)] * 12
     summary = replay(video, DetectionConfig(), ScriptedEngine(script))
     assert summary.events == []
+
+
+class NoPersonEngine:
+    """Dublê que nunca detecta pessoa — exercita o caminho sem gente."""
+
+    def detect(self, image):
+        return [], []
+
+    def pose(self, image, boxes):
+        return []
+
+    def warmup(self):
+        pass
+
+
+def test_replay_video_without_person(tmp_path):
+    """Vídeo sem ninguém: CSV válido, todas as linhas com n_persons=0, zero eventos."""
+    video = tmp_path / "vazio.mp4"
+    _make_video(video, n=8)
+    out_csv = tmp_path / "vazio.csv"
+    summary = replay(video, DetectionConfig(), NoPersonEngine(), out_csv=out_csv)
+    assert summary.frames == 8
+    assert summary.frames_with_person == 0
+    assert summary.events == []
+    lines = out_csv.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 9  # cabeçalho + 8 frames
+    assert all(row.split(",")[2] == "0" for row in lines[1:])  # n_persons == 0
+
+
+def test_replay_subsampling_computes_ts_from_real_frame_index(tmp_path):
+    """every>1: o ts vem do índice REAL do frame no vídeo (idx/fps), não do
+    contador de processados — senão o cálculo de dwell (em segundos) quebra."""
+    video = tmp_path / "sub.mp4"
+    _make_video(video, n=15)  # 15 frames a 5fps = 3.0s de vídeo
+    script = [(160, 120, 0.9)] * 15
+    out_csv = tmp_path / "sub.csv"
+    summary = replay(video, DetectionConfig(), ScriptedEngine(script),
+                     out_csv=out_csv, every=3)
+    # processa 1 a cada 3: frames de índice 0,3,6,9,12 => 5 frames processados
+    assert summary.frames == 5
+    rows = out_csv.read_text(encoding="utf-8").strip().splitlines()[1:]
+    ts_values = [float(r.split(",")[1]) for r in rows]
+    # ts = idx/fps => 0.0, 0.6, 1.2, 1.8, 2.4 (não 0,0.2,0.4,... do contador)
+    assert ts_values == [0.0, 0.6, 1.2, 1.8, 2.4]
