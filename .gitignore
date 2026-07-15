@@ -11,3 +11,4 @@ logs/
 dev/bin/
 dev/videos/
 .pytest_cache/
+relatorio-capacidade.txt
