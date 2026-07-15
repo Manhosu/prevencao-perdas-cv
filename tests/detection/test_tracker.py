@@ -1,5 +1,7 @@
+import pytest
+
 from src.core.types import BBox, PersonDetection
-from src.detection.tracker import Tracker
+from src.detection.tracker import Tracker, iou
 
 
 def _p(x1, y1, x2, y2, conf=0.9) -> PersonDetection:
@@ -53,3 +55,141 @@ def test_two_people_do_not_swap_ids():
     by_id = {p.track_id: p.bbox.x1 for p in out}
     assert by_id[a.track_id] < 100
     assert by_id[b.track_id] > 300
+
+
+# ---------------------------------------------------------------------------
+# Correção pós-revisão: predição de movimento + associação ótima.
+# ---------------------------------------------------------------------------
+
+
+def test_ids_survive_two_people_crossing_paths():
+    """Duas pessoas andando uma em direção à outra (~15px/frame) se cruzam
+    perto de uma prateleira — cenário comum de loja, não caso raro. Sem
+    predição de movimento, o associador guloso compara a detecção nova com
+    a última posição PARADA do track; no frame do cruzamento, a posição de
+    A cai sobre onde B estava (e vice-versa), o guloso pareia pela maior
+    sobreposição e troca os ids permanentemente (sem autocorreção).
+
+    Confirmado manualmente contra o tracker guloso anterior (sem predição):
+    a pessoa A (id 1, começa à esquerda) e a pessoa B (id 2, começa à
+    direita) trocam de id a partir do frame em que as caixas se cruzam
+    (ax1=210, bx1=190) e o erro persiste em todos os frames seguintes — este
+    teste falha nessa implementação e só passa com a predição de movimento.
+    """
+    t = Tracker(max_lost_seconds=2.0)
+    step = 15.0
+
+    ax1, bx1 = 0.0, 400.0
+    first = t.update([_p(ax1, 0, ax1 + 50, 150), _p(bx1, 0, bx1 + 50, 150)], ts=0.0)
+    id_a, id_b = first[0].track_id, first[1].track_id
+    assert id_a != id_b
+
+    for frame in range(1, 40):
+        ts = float(frame)
+        ax1 += step
+        bx1 -= step
+        out = t.update([_p(ax1, 0, ax1 + 50, 150), _p(bx1, 0, bx1 + 50, 150)], ts=ts)
+        # A pessoa que começou à esquerda (sempre passada primeiro na lista
+        # de detecções, na sua posição real atual) mantém o id_a; idem para
+        # B com id_b — inclusive no frame em que as caixas se sobrepõem.
+        assert out[0].track_id == id_a, f"id_a trocou no frame {frame} (ax1={ax1}, bx1={bx1})"
+        assert out[1].track_id == id_b, f"id_b trocou no frame {frame} (ax1={ax1}, bx1={bx1})"
+
+
+def test_optimal_assignment_avoids_unnecessary_new_id():
+    """Duas pessoas próximas (fila de caixa): o guloso pega o par de maior
+    IoU isolado (A com o track de B) e deixa o outro sem par acima do
+    limiar, criando um id novo desnecessário e zerando o dwell de quem já
+    estava sendo rastreado.
+
+    Matriz de IoU nesta configuração (A=pessoa que ficou perto do track 1,
+    B=pessoa que ficou perto do track 2): A-T1=0.587, A-T2=0.754 (o maior
+    IoU isolado da matriz), B-T1=0.111 (abaixo do limiar), B-T2=0.429.
+    Guloso: pega A-T2 primeiro (maior IoU global) -> só resta B-T1, que é
+    abaixo do limiar -> B vira id novo (confirmado manualmente: guloso
+    produz ids {1 (para A), 3 (novo para B)}, descartando o id 2).
+    Ótimo: soma da diagonal (A-T1 + B-T2 = 0.587+0.429=1.016) é maior que a
+    soma fora da diagonal (A-T2 + 0 = 0.754) -> preserva os dois ids
+    existentes, nenhum id novo é criado.
+    """
+    t = Tracker(max_lost_seconds=2.0)
+    first = t.update([_p(0, 0, 50, 150), _p(20, 0, 70, 150)], ts=0.0)
+    id1, id2 = first[0].track_id, first[1].track_id
+
+    out = t.update([_p(13, 0, 63, 150), _p(40, 0, 90, 150)], ts=0.2)
+
+    ids = {p.track_id for p in out}
+    assert ids == {id1, id2}, f"associação ótima deveria preservar {{id1, id2}}, obteve {ids}"
+    assert t.active_ids() == {id1, id2}
+
+
+@pytest.mark.parametrize("gap_frames", [2, 3, 4])
+def test_id_survives_multiple_empty_frames_within_max_lost(gap_frames):
+    """Pessoa some por vários frames seguidos (oclusão mais longa) mas
+    volta dentro de max_lost_seconds: tem que manter o id — o dwell não
+    pode reiniciar só porque a oclusão durou mais de 1 frame."""
+    t = Tracker(max_lost_seconds=2.0)
+    first = t.update([_p(0, 0, 50, 150)], ts=0.0)[0]
+
+    ts = 0.0
+    for _ in range(gap_frames):
+        ts += 0.2
+        t.update([], ts=ts)
+
+    ts += 0.2
+    again = t.update([_p(5, 0, 55, 150)], ts=ts)[0]
+    assert again.track_id == first.track_id
+
+
+@pytest.mark.parametrize("gap_frames", [2, 3, 4])
+def test_id_dropped_after_multiple_empty_frames_beyond_max_lost(gap_frames):
+    """Mesmo cenário de gap de vários frames, mas o tempo decorrido excede
+    max_lost_seconds: o id tem que ser descartado (limite inclusivo, <=,
+    já coberto por test_id_is_dropped_after_max_lost para gap de 1 frame;
+    aqui confirmamos que generaliza para vários frames vazios)."""
+    max_lost = 1.0
+    t = Tracker(max_lost_seconds=max_lost)
+    t.update([_p(0, 0, 50, 150)], ts=0.0)
+
+    ts = 0.0
+    step = (max_lost + 0.5) / gap_frames
+    for _ in range(gap_frames):
+        ts += step
+        t.update([], ts=ts)
+
+    ts += 0.1
+    out = t.update([_p(0, 0, 50, 150)], ts=ts)
+    assert out[0].track_id == 2
+    assert t.active_ids() == {2}
+
+
+class TestIoU:
+    """Testes isolados de `iou()`, sem passar pelo Tracker."""
+
+    def test_identical_boxes_have_iou_one(self):
+        box = BBox(10, 20, 60, 170)
+        assert iou(box, box) == pytest.approx(1.0)
+
+    def test_disjoint_boxes_have_iou_zero(self):
+        a = BBox(0, 0, 50, 150)
+        b = BBox(1000, 0, 1050, 150)
+        assert iou(a, b) == pytest.approx(0.0)
+
+    def test_touching_but_not_overlapping_boxes_have_iou_zero(self):
+        a = BBox(0, 0, 50, 150)
+        b = BBox(50, 0, 100, 150)  # encostam na borda, sem área de sobreposição
+        assert iou(a, b) == pytest.approx(0.0)
+
+    def test_known_partial_overlap_exact_value(self):
+        # a: 10x10 em (0,0)-(10,10); b: 10x10 em (5,5)-(15,15).
+        # Interseção: 5x5=25. União: 100+100-25=175. IoU = 25/175 = 1/7.
+        a = BBox(0, 0, 10, 10)
+        b = BBox(5, 5, 15, 15)
+        assert iou(a, b) == pytest.approx(1 / 7)
+
+    def test_known_partial_overlap_exact_value_horizontal(self):
+        # a: 10x10 em (0,0)-(10,10); b: 10x10 em (5,0)-(15,10).
+        # Interseção: 5x10=50. União: 100+100-50=150. IoU = 50/150 = 1/3.
+        a = BBox(0, 0, 10, 10)
+        b = BBox(5, 0, 15, 10)
+        assert iou(a, b) == pytest.approx(1 / 3)
