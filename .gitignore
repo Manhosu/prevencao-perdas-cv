@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+models/*.pt
+models/*_openvino_model/
+models/*.onnx
+config/config.json
+data/
+evidence/
+logs/
+dev/bin/
+dev/videos/
+.pytest_cache/
+relatorio-capacidade.txt

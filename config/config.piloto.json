@@ -1,0 +1,59 @@
+{
+  "store": { "id": "loja-piloto-joaolucas", "name": "Mercado Piloto (Joao Lucas)" },
+  "telegram": {
+    "bot_token": "PENDENTE_BOTFATHER",
+    "chat_id": "PENDENTE_GRUPO",
+    "send_photo": true,
+    "send_clip": true,
+    "rate_limit_per_min": 15
+  },
+  "inference": {
+    "device": "openvino",
+    "person_model": "models/yolo11n.pt",
+    "pose_model": "models/yolo11n-pose.pt",
+    "detect_size": 640,
+    "pose_on_crop": true,
+    "workers": 2,
+    "detect_bags": true
+  },
+  "detection": {
+    "threshold": 0.6,
+    "dwell_seconds": 1.2,
+    "window_seconds": 3.0,
+    "cooldown_seconds": 30.0
+  },
+  "evidence": { "dir": "evidence", "retention_days": 30 },
+  "watchdog": { "offline_after_seconds": 30.0, "notify": true },
+  "cameras": [
+    {
+      "name": "DVR1 Ch08 - Corredor salgadinhos",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.211:554/cam/realmonitor?channel=8&subtype=1",
+      "target_fps": 5,
+      "zones": []
+    },
+    {
+      "name": "DVR1 Ch12 - Corredor (angulo bom)",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.211:554/cam/realmonitor?channel=12&subtype=1",
+      "target_fps": 5,
+      "zones": []
+    },
+    {
+      "name": "DVR1 Ch16 - Bebidas/Caixa",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.211:554/cam/realmonitor?channel=16&subtype=1",
+      "target_fps": 5,
+      "zones": []
+    },
+    {
+      "name": "DVR2 Ch11 - Bebidas (angulo otimo)",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.117:554/cam/realmonitor?channel=11&subtype=1",
+      "target_fps": 5,
+      "zones": []
+    },
+    {
+      "name": "DVR2 Ch14 - Visao ampla (fraca)",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.117:554/cam/realmonitor?channel=14&subtype=1",
+      "target_fps": 4,
+      "zones": []
+    }
+  ]
+}
