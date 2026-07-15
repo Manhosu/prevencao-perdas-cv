@@ -31,6 +31,51 @@ class FakeCapture:
         self.released = True
 
 
+class CountingReleaseCapture(FakeCapture):
+    """Dublê que conta quantas vezes release() é chamado (em vez de só um
+    booleano), para provar liberação única, não apenas "liberou alguma vez"."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.release_calls = 0
+
+    def release(self):
+        self.release_calls += 1
+        super().release()
+
+
+class ExplodingReleaseCapture(FakeCapture):
+    """Dublê cujo release() sempre lança, simulando uma falha do driver ao
+    liberar a captura no caminho normal (o cenário que expunha o bug do
+    release() duplicado)."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.release_calls = 0
+
+    def release(self):
+        self.release_calls += 1
+        raise RuntimeError("falha simulada ao liberar captura")
+
+
+class ExplodingReadCapture(FakeCapture):
+    """Dublê cujo read() lança uma vez e depois se comporta normalmente,
+    para provar que a exceção conta como falha de leitura (tolerada por
+    MAX_READ_FAILURES) em vez de forçar reconexão imediata."""
+
+    def __init__(self, raise_on_read: int, **kw):
+        super().__init__(**kw)
+        self.raise_on_read = raise_on_read
+
+    def read(self):
+        self.reads += 1
+        if self.reads == self.raise_on_read:
+            raise RuntimeError("falha simulada de decodificação")
+        if self.fail_after is not None and self.reads > self.fail_after:
+            return False, None
+        return True, np.zeros((360, 640, 3), dtype=np.uint8)
+
+
 def _cam(**kw) -> CameraConfig:
     return CameraConfig(
         name="cam1", rtsp_url="rtsp://fake/ch1", target_fps=kw.pop("target_fps", 20), **kw
@@ -121,6 +166,100 @@ def test_backoff_is_capped():
     assert t._next_backoff(1.0) == 2.0
     assert t._next_backoff(4.0) == 5.0
     assert t._next_backoff(5.0) == 5.0
+
+
+def test_release_called_exactly_once_on_normal_reconnect():
+    """Regressão: o try/except largo envolvia o ciclo inteiro (abrir → ler →
+    release do caminho normal), então uma falha nesse release() caía no
+    except externo, que chamava cap.release() de novo (release_calls=2).
+    Aqui o release() do caminho normal nunca falha — serve para provar que a
+    correção não introduziu uma liberação dupla nem no caminho feliz."""
+    slot = LatestFrameSlot()
+    caps: list[CountingReleaseCapture] = []
+
+    def factory(url):
+        # o primeiro morre depois de 2 leituras; o segundo é saudável
+        cap = CountingReleaseCapture(fail_after=2 if not caps else None)
+        caps.append(cap)
+        return cap
+
+    t = CameraThread(_cam(), slot, backoff_max=0.1, open_capture=factory)
+    t.start()
+    try:
+        deadline = time.monotonic() + 5
+        while len(caps) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert len(caps) >= 2, "não reconectou depois da queda do stream"
+        assert caps[0].release_calls == 1, (
+            f"release() chamado {caps[0].release_calls}x, esperado exatamente 1x"
+        )
+
+        deadline = time.monotonic() + 3
+        while t.state != CameraState.ONLINE and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert t.state == CameraState.ONLINE, "thread não sobreviveu/reconectou"
+    finally:
+        t.stop()
+
+
+def test_release_exception_does_not_cause_double_release():
+    """Cobre o bug relatado na revisão: release() do caminho normal lança
+    exceção. Antes da correção, o except externo via `cap is not None` e
+    chamava cap.release() de novo (2 chamadas). Depois da correção, cada
+    VideoCapture é liberado exatamente uma vez mesmo quando release() falha,
+    e a thread continua viva e reconectando com a próxima captura."""
+    slot = LatestFrameSlot()
+    caps: list[FakeCapture] = []
+
+    def factory(url):
+        if not caps:
+            cap = ExplodingReleaseCapture(fail_after=2)
+        else:
+            cap = FakeCapture()  # captura seguinte é saudável e não lança
+        caps.append(cap)
+        return cap
+
+    t = CameraThread(_cam(), slot, backoff_max=0.1, open_capture=factory)
+    t.start()
+    try:
+        deadline = time.monotonic() + 5
+        while len(caps) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert len(caps) >= 2, "não reconectou depois da falha no release()"
+        assert caps[0].release_calls == 1, (
+            f"release() chamado {caps[0].release_calls}x, esperado exatamente 1x "
+            "mesmo com exceção"
+        )
+
+        # a thread precisa continuar viva e voltar a ficar ONLINE com a
+        # próxima captura, mesmo depois da exceção no release() da anterior
+        deadline = time.monotonic() + 3
+        while t.state != CameraState.ONLINE and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert t.state == CameraState.ONLINE, "thread não sobreviveu à exceção no release()"
+    finally:
+        t.stop()
+
+
+def test_read_exception_is_tolerated_like_ok_false():
+    """Uma exceção isolada em read() deve contar como falha de leitura (o
+    mesmo contador de ok=False), não forçar reconexão imediata — tolera um
+    glitch pontual do decodificador até MAX_READ_FAILURES."""
+    slot = LatestFrameSlot()
+    cap = ExplodingReadCapture(raise_on_read=2)
+    t = CameraThread(_cam(), slot, backoff_max=0.1, open_capture=lambda url: cap)
+    t.start()
+    try:
+        deadline = time.monotonic() + 3
+        while slot.peek() is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert slot.peek() is not None, "não recebeu frames após a exceção isolada em read()"
+        assert t.state == CameraState.ONLINE
+        # a exceção não derrubou a captura: ainda é a mesma instância (não
+        # houve reconexão/reabertura por causa de um único read() falho)
+        assert cap.released is False
+    finally:
+        t.stop()
 
 
 @pytest.mark.slow

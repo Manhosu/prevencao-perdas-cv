@@ -23,6 +23,18 @@ def _open_rtsp(url: str) -> cv2.VideoCapture:
     cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
     # buffer mínimo: queremos o frame mais novo, não a fila do driver
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    # Timeouts de abertura/leitura: sem eles, uma conexão TCP que não fecha
+    # limpo (cabo meio solto, switch congelado) faz cap.read() travar para
+    # sempre — sem lançar exceção, sem devolver ok=False — e a reconexão
+    # nunca dispara. É o pior tipo de falha de campo: parece que está tudo
+    # funcionando. Só afetam o backend FFMPEG real; os dublês de teste não
+    # usam cv2.VideoCapture, então não mudam de comportamento.
+    open_timeout = getattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC", None)
+    if open_timeout is not None:
+        cap.set(open_timeout, 10000)  # 10s para abrir a conexão
+    read_timeout = getattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC", None)
+    if read_timeout is not None:
+        cap.set(read_timeout, 10000)  # 10s para uma leitura individual
     return cap
 
 
@@ -91,6 +103,52 @@ class CameraThread:
     def _next_backoff(self, current: float) -> float:
         return min(self.backoff_max, max(1.0, current * 2))
 
+    # --- chamadas de risco (I/O do driver) ---
+    #
+    # Uma câmera nunca pode derrubar a thread de captura: o sistema roda 24/7
+    # sem supervisão, e um driver instável (frame corrompido, exceção do
+    # FFmpeg) não pode tirar a loja de vigilância. Em vez de um único
+    # try/except largo em torno do ciclo inteiro (abrir → ler → liberar) —
+    # que fazia cap.release() ser chamado duas vezes quando o release() do
+    # caminho normal lançava exceção, já que o except externo via cap is not
+    # None e liberava de novo — cada chamada de risco é protegida
+    # individualmente, no mesmo padrão usado no resto do projeto: envolver só
+    # a chamada de risco, não o corpo inteiro do laço.
+
+    def _safe_open(self) -> object | None:
+        cap = None
+        opened = False
+        try:
+            cap = self._open(self.camera.rtsp_url)
+            opened = cap is not None and cap.isOpened()
+        except Exception:
+            log.exception("câmera '%s': erro ao abrir captura", self.camera.name)
+        if not opened:
+            self._safe_release(cap)
+            return None
+        return cap
+
+    def _safe_read(self, cap: object) -> tuple[bool, object | None]:
+        try:
+            return cap.read()
+        except Exception:
+            # Uma exceção em read() conta como falha de leitura, igual a
+            # ok=False: respeita a tolerância de MAX_READ_FAILURES em vez de
+            # reconectar de imediato por causa de um glitch pontual do
+            # decodificador (ex.: um frame corrompido isolado).
+            log.exception("câmera '%s': erro ao ler frame", self.camera.name)
+            return False, None
+
+    def _safe_release(self, cap: object | None) -> None:
+        if cap is None:
+            return
+        try:
+            cap.release()
+        except Exception:
+            log.exception(
+                "câmera '%s': falha ao liberar captura", self.camera.name
+            )
+
     # --- laço principal ---
 
     def _run(self) -> None:
@@ -98,72 +156,54 @@ class CameraThread:
         interval = 1.0 / max(0.1, self.camera.target_fps)
 
         while not self._stop.is_set():
-            cap = None
-            try:
-                cap = self._open(self.camera.rtsp_url)
-                if cap is None or not cap.isOpened():
-                    if cap is not None:
-                        cap.release()
-                    self._set_state(CameraState.RECONNECTING)
-                    backoff = self._next_backoff(backoff)
-                    log.warning(
-                        "câmera '%s': falha ao conectar, nova tentativa em %.0fs",
-                        self.camera.name, backoff,
-                    )
-                    self._stop.wait(backoff)
+            cap = self._safe_open()
+            if cap is None:
+                # _safe_open já liberou a captura (se alguma foi criada) antes
+                # de devolver None — nenhum release adicional é necessário aqui.
+                self._set_state(CameraState.RECONNECTING)
+                backoff = self._next_backoff(backoff)
+                log.warning(
+                    "câmera '%s': falha ao conectar, nova tentativa em %.0fs",
+                    self.camera.name, backoff,
+                )
+                self._stop.wait(backoff)
+                continue
+
+            backoff = 0.0
+            failures = 0
+            next_sample = time.monotonic()
+
+            while not self._stop.is_set():
+                ok, image = self._safe_read(cap)
+                if not ok or image is None:
+                    failures += 1
+                    if failures >= MAX_READ_FAILURES:
+                        log.warning("câmera '%s': stream morreu", self.camera.name)
+                        break
+                    time.sleep(0.05)
                     continue
 
-                backoff = 0.0
                 failures = 0
-                next_sample = time.monotonic()
+                now = time.monotonic()
+                if now < next_sample:
+                    continue  # amostragem: descarta o frame sem processar
 
-                while not self._stop.is_set():
-                    ok, image = cap.read()
-                    if not ok or image is None:
-                        failures += 1
-                        if failures >= MAX_READ_FAILURES:
-                            log.warning("câmera '%s': stream morreu", self.camera.name)
-                            break
-                        time.sleep(0.05)
-                        continue
+                next_sample = now + interval
+                self._seq += 1
+                self.slot.put(Frame(self.camera.name, image, now, self._seq))
+                with self._lock:
+                    self._last_frame_ts = now
+                    self._fps_window.append(now)
+                    if len(self._fps_window) > 20:
+                        self._fps_window.pop(0)
+                self._set_state(CameraState.ONLINE)
 
-                    failures = 0
-                    now = time.monotonic()
-                    if now < next_sample:
-                        continue  # amostragem: descarta o frame sem processar
-
-                    next_sample = now + interval
-                    self._seq += 1
-                    self.slot.put(Frame(self.camera.name, image, now, self._seq))
-                    with self._lock:
-                        self._last_frame_ts = now
-                        self._fps_window.append(now)
-                        if len(self._fps_window) > 20:
-                            self._fps_window.pop(0)
-                    self._set_state(CameraState.ONLINE)
-
-                cap.release()
-                if not self._stop.is_set():
-                    self._set_state(CameraState.RECONNECTING)
-                    backoff = self._next_backoff(backoff)
-                    self._stop.wait(backoff)
-            except Exception:
-                # Uma câmera nunca pode derrubar a thread de captura: o sistema
-                # roda 24/7 sem supervisão, e um driver instável (frame
-                # corrompido, exceção do FFmpeg) não pode tirar a loja de
-                # vigilância. Loga, libera o que for possível e tenta de novo.
-                log.exception(
-                    "câmera '%s': erro inesperado na captura, reconectando",
-                    self.camera.name,
-                )
-                if cap is not None:
-                    try:
-                        cap.release()
-                    except Exception:
-                        log.exception(
-                            "câmera '%s': falha ao liberar captura após erro",
-                            self.camera.name,
-                        )
+            # Único ponto de release do caminho "conexão abriu e leu": este
+            # cap só existe aqui porque _safe_open devolveu um objeto válido,
+            # e cada iteração do laço externo cria um cap novo — logo, cada
+            # VideoCapture passa por exatamente uma chamada de release().
+            self._safe_release(cap)
+            if not self._stop.is_set():
                 self._set_state(CameraState.RECONNECTING)
                 backoff = self._next_backoff(backoff)
                 self._stop.wait(backoff)
