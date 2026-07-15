@@ -68,8 +68,8 @@ def main() -> int:
         except (ValueError, OSError):
             log.warning("não foi possível registrar handler de SIGTERM; use Ctrl+C para parar")
 
-    pipeline.start()
     try:
+        pipeline.start()
         while not stopping:
             time.sleep(args.status_every)
             for name, st in pipeline.status().items():

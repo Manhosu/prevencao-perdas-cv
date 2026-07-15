@@ -6,6 +6,7 @@ A lógica de ocultação (Plano 2) pluga na saída de `process_frame`."""
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 
 from src.capture.frame_slot import LatestFrameSlot
@@ -44,6 +45,7 @@ class Pipeline:
             self.slots, self.scheduler, self._on_frame, workers=cfg.inference.workers
         )
         self._gates: dict[str, PersonGate] = {}  # criado no 1º frame (precisa do tamanho)
+        self._gates_lock = threading.Lock()
         self._trackers: dict[str, Tracker] = {
             c.name: Tracker(
                 max_lost_seconds=c.effective_detection(cfg.detection).guards.track_lost_seconds
@@ -53,12 +55,17 @@ class Pipeline:
         self.on_result = None  # callback opcional: Callable[[FrameResult, Frame], None]
 
     def _gate_for(self, frame: Frame) -> PersonGate:
+        # Double-checked locking: leitura sem lock, depois re-checa dentro do lock
         gate = self._gates.get(frame.camera_name)
         if gate is None:
-            h, w = frame.image.shape[:2]
-            cam = next(c for c in self.cameras if c.name == frame.camera_name)
-            gate = PersonGate(cam.zones, (w, h))
-            self._gates[frame.camera_name] = gate
+            with self._gates_lock:
+                # Re-checa após adquirir o lock (outra thread pode ter criado)
+                gate = self._gates.get(frame.camera_name)
+                if gate is None:
+                    h, w = frame.image.shape[:2]
+                    cam = next(c for c in self.cameras if c.name == frame.camera_name)
+                    gate = PersonGate(cam.zones, (w, h))
+                    self._gates[frame.camera_name] = gate
         return gate
 
     def process_frame(self, frame: Frame) -> FrameResult:
