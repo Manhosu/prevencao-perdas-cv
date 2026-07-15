@@ -151,6 +151,21 @@ def test_long_visible_dwell_fires():
     assert e.signals["vanish"] == 0.0
 
 
+def test_incidental_hand_near_body_does_not_fire():
+    """Falso-positivo medido em footage real: mão fica perto do corpo (zona
+    de cintura) por movimento normal — NUNCA veio da prateleira (sem reach
+    antes) e NUNCA some (conf sempre alta). Dwell puro satura, mas sem
+    approach nem vanish isso não é uma assinatura de ocultação real e não
+    deve disparar.
+
+    Mesma posição (140, 190) do teste test_long_visible_dwell_fires (zona
+    'waist'), mas SEM os 3 frames de reach que o precedem lá."""
+    a = ConcealmentAnalyzer(DetectionConfig(), fps_hint=FPS)
+    frames = [((140, 190), 0.9)] * 14           # já nasce dentro da zona, sempre visível
+    events = _run(a, frames)
+    assert events == []
+
+
 def test_per_track_state_isolation():
     """Duas pessoas: só a que faz o gesto dispara."""
     a = ConcealmentAnalyzer(DetectionConfig(), fps_hint=FPS)

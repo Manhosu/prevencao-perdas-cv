@@ -18,6 +18,17 @@ from src.detection.signals import Signals, WristHistory, compute_signals
 
 WRISTS = (KP["left_wrist"], KP["right_wrist"])
 
+# Uma ocultação real sempre tem uma destas assinaturas físicas: a mão CHEGA
+# à zona vindo da prateleira (approach) ou o punho SOME dentro da zona
+# (vanish). Mão incidentalmente perto do corpo (movimento normal numa loja)
+# não tem nenhuma das duas — só dwell puro. Por isso um disparo exige
+# approach OU vanish além de score+dwell (medido em footage real: dwell
+# puro sozinho gera ~344 falsos-positivos/hora). Limiares fixos aqui (não
+# em DetectionConfig) porque não fazem parte da superfície de calibração —
+# são o gate estrutural do que conta como "assinatura real".
+APPROACH_LATCH_THRESHOLD = 0.3
+VANISH_STRONG_THRESHOLD = 0.5
+
 
 class State(str, Enum):
     IDLE = "idle"
@@ -42,6 +53,12 @@ class _TrackState:
     wrists: dict[int, WristHistory] = field(default_factory=dict)
     last_seen: float = 0.0
     cooldown_until: float = 0.0
+    # Latch por episódio: fica True assim que o approach do punho passa do
+    # limiar em QUALQUER frame do episódio corrente. Necessário porque o
+    # approach instantâneo decai na janela — no momento em que o dwell
+    # finalmente satura (muitos frames depois), o approach já pode ter
+    # decaído a quase zero mesmo num gesto real. Reseta em IDLE e COOLDOWN.
+    episode_had_approach: bool = False
 
 
 class ConcealmentAnalyzer:
@@ -76,6 +93,7 @@ class ConcealmentAnalyzer:
 
             # Atualiza o histórico de cada punho
             best: tuple[float, Signals] | None = None
+            any_reach = False
             for wi in WRISTS:
                 w = pose.keypoints[wi]
                 x_n, y_n = bf.to_body_coords((float(w[0]), float(w[1])))
@@ -83,6 +101,7 @@ class ConcealmentAnalyzer:
                 if zone is None and bag is not None and self._in_bag(w, bag):
                     zone = "bag"
                 reach = in_reach(x_n, y_n, self.cfg.geometry)
+                any_reach = any_reach or reach
                 hist = st.wrists.setdefault(wi, WristHistory(self.fps_hint))
                 hist.observe(x_n, y_n, float(w[2]), zone, reach, ts)
                 hist.prune(ts, self.cfg.window_seconds)
@@ -95,7 +114,7 @@ class ConcealmentAnalyzer:
                 continue
             score, sig = best
 
-            ev = self._advance(st, tid, score, sig, ts)
+            ev = self._advance(st, tid, score, sig, ts, any_reach)
             if ev is not None:
                 events.append(ev)
 
@@ -116,15 +135,24 @@ class ConcealmentAnalyzer:
         return float(np.clip(bruto * zone_weight * quality, 0.0, 1.0))
 
     # --- máquina de estados (spec §6.5) ---
-    def _advance(self, st, tid, score, sig, ts) -> ConcealmentEvent | None:
+    def _advance(self, st, tid, score, sig, ts, in_reach_now) -> ConcealmentEvent | None:
         if st.state == State.COOLDOWN:
             if ts >= st.cooldown_until:
                 st.state = State.IDLE
             else:
                 return None
 
-        dwell_ok = sig.dwell >= 1.0 or sig.vanish > 0.5
-        if score >= self.cfg.threshold and dwell_ok and sig.zone:
+        # Trava o latch assim que o approach deste frame passa do limiar —
+        # sticky pelo resto do episódio (ver comentário em _TrackState).
+        if sig.approach > APPROACH_LATCH_THRESHOLD:
+            st.episode_had_approach = True
+
+        dwell_ok = sig.dwell >= 1.0 or sig.vanish > VANISH_STRONG_THRESHOLD
+        # Assinatura física de ocultação real: a mão chegou vindo da
+        # prateleira (latch de approach) OU sumiu dentro da zona (vanish
+        # forte agora dispensa o latch — mão que some é suspeita por si só).
+        real_signature = st.episode_had_approach or sig.vanish > VANISH_STRONG_THRESHOLD
+        if score >= self.cfg.threshold and dwell_ok and sig.zone and real_signature:
             st.state = State.ALERT
             ev = ConcealmentEvent(
                 track_id=tid, score=round(score, 3), zone=sig.zone,
@@ -134,9 +162,16 @@ class ConcealmentAnalyzer:
             )
             st.state = State.COOLDOWN
             st.cooldown_until = ts + self.cfg.cooldown_seconds
+            st.episode_had_approach = False  # o próximo gesto é um novo episódio
             return ev
 
-        st.state = State.CONCEALING if sig.zone else State.IDLE
+        if sig.zone:
+            st.state = State.CONCEALING
+        elif in_reach_now:
+            st.state = State.APPROACHING
+        else:
+            st.state = State.IDLE
+            st.episode_had_approach = False  # mão saiu de tudo: episódio acabou
         return None
 
     # --- associação de bolsa/mochila (spec §6.2) ---
