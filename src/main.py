@@ -8,7 +8,6 @@ import argparse
 import logging
 import signal
 import time
-from datetime import datetime
 
 from src.alerts.alert_queue import AlertQueue
 from src.alerts.telegram_alert import TelegramSender
@@ -46,7 +45,8 @@ def main() -> int:
     db.init_schema()
     recorder = EvidenceRecorder(db, cfg.evidence, cfg.store)
     sender = TelegramSender(cfg.telegram)
-    alerts = AlertQueue(sender, db, rate_limit_per_min=cfg.telegram.rate_limit_per_min)
+    alerts = AlertQueue(sender, db, rate_limit_per_min=cfg.telegram.rate_limit_per_min,
+                       send_photo=cfg.telegram.send_photo, send_clip=cfg.telegram.send_clip)
     retention = RetentionJob(db, cfg.evidence)
     watchdog = Watchdog(pipeline.threads, db, cfg.watchdog, alert_queue=alerts)
 
@@ -63,14 +63,13 @@ def main() -> int:
                 [p.person.track_id for p in result.persons],
             )
         for ev in result.events:
-            event_id = recorder.record(ev, result.camera_name, frame.image,
-                                       clip_buffer=pipeline.clip_buffers.get(result.camera_name))
-            row = db.list_events(limit=1)[0]
+            res = recorder.record(ev, result.camera_name, frame.image,
+                                  clip_buffer=pipeline.clip_buffers.get(result.camera_name))
             caption = sender.caption_for(cfg.store.name, result.camera_name,
-                                         datetime.now(), ev.zone)
-            alerts.enqueue(event_id, row["image_path"], row["clip_path"], caption)
+                                         res.ts_local, ev.zone)
+            alerts.enqueue(res.event_id, res.image_path, res.clip_path, caption)
             log.info("OCULTACAO em '%s' (zona %s, score %.2f) — evidencia #%s",
-                     result.camera_name, ev.zone, ev.score, event_id)
+                     result.camera_name, ev.zone, ev.score, res.event_id)
 
     pipeline.on_result = _on_result
 
@@ -109,11 +108,22 @@ def main() -> int:
                     name, st["state"], st["fps"], st["dropped"],
                 )
     finally:
-        watchdog.stop()
-        retention.stop()
-        alerts.stop()
-        pipeline.stop()
-        db.close()
+        # Ordem importa: para o pipeline PRIMEIRO (para de gerar eventos novos);
+        # so entao para watchdog/retention; alerts.stop() por ultimo entre os
+        # servicos, pra drenar o que ainda estiver na fila; db.close() e o
+        # derradeiro. Cada parada no seu proprio try/except: uma falha aqui
+        # nao pode impedir as demais de rodar (e o db.close() sempre acontece).
+        for nome, parar in (
+            ("pipeline", pipeline.stop),
+            ("watchdog", watchdog.stop),
+            ("retention", retention.stop),
+            ("alertas", alerts.stop),
+            ("banco de dados", db.close),
+        ):
+            try:
+                parar()
+            except Exception:
+                log.exception("falha ao parar '%s'", nome)
     return 0
 
 

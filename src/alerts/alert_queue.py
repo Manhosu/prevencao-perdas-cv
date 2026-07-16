@@ -29,11 +29,14 @@ class _Item:
 
 class AlertQueue:
     def __init__(self, sender, db, rate_limit_per_min: int = 15,
-                 max_retries: int = 3, backoff_base: float = 1.0) -> None:
+                 max_retries: int = 3, backoff_base: float = 1.0,
+                 send_photo: bool = True, send_clip: bool = True) -> None:
         self.sender = sender
         self.db = db
         self.max_retries = max_retries
         self.backoff_base = backoff_base
+        self.send_photo = send_photo
+        self.send_clip = send_clip
         self._min_interval = 60.0 / max(1, rate_limit_per_min)
         self._q: queue.Queue[_Item] = queue.Queue()
         self._stop = threading.Event()
@@ -105,16 +108,35 @@ class AlertQueue:
     def _processa(self, item: _Item) -> None:
         self._respeita_rate_limit()
         ok = False
-        try:
-            if item.text is not None:
+        if item.text is not None:
+            try:
                 ok = bool(self.sender.send_message(item.text))
-            elif item.image_path is not None:
-                ok = bool(self.sender.send_photo(item.image_path, item.caption))
-            elif item.clip_path is not None:
-                ok = bool(self.sender.send_video(item.clip_path, item.caption))
-        except Exception as e:
-            log.warning("envio falhou: %s", e)
-            ok = False
+            except Exception as e:
+                log.warning("envio da mensagem falhou: %s", e)
+        else:
+            enviou_midia = False
+            if item.image_path is not None and self.send_photo:
+                enviou_midia = True
+                try:
+                    if bool(self.sender.send_photo(item.image_path, item.caption)):
+                        ok = True
+                except Exception as e:
+                    log.warning("envio da foto falhou: %s", e)
+            if item.clip_path is not None and self.send_clip:
+                enviou_midia = True
+                try:
+                    if bool(self.sender.send_video(item.clip_path, item.caption)):
+                        ok = True
+                except Exception as e:
+                    log.warning("envio do clipe falhou: %s", e)
+            if not enviou_midia:
+                # sem midia para enviar (falha ao salvar o arquivo, ou
+                # send_photo/send_clip desabilitados no config) — o lojista
+                # ainda assim precisa receber o alerta, ao menos em texto.
+                try:
+                    ok = bool(self.sender.send_message(item.caption))
+                except Exception as e:
+                    log.warning("envio da mensagem de fallback falhou: %s", e)
         self._last_send = time.monotonic()
 
         if ok:

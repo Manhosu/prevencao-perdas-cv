@@ -13,6 +13,7 @@ class FakeSender:
         self.falhas_ate = falhas_ate
         self.tentativas = 0
         self.fotos = []
+        self.clipes = []
         self.mensagens = []
 
     def send_photo(self, path, caption):
@@ -23,6 +24,7 @@ class FakeSender:
         return True
 
     def send_video(self, path, caption):
+        self.clipes.append((str(path), caption))
         return True
 
     def send_message(self, text):
@@ -114,6 +116,94 @@ def test_rate_limit_delays_second_send(db, tmp_path):
         q.stop()
     assert len(s.fotos) == 2
     assert dt >= 0.9  # o segundo esperou o rate-limit
+
+
+def test_photo_and_clip_are_both_sent_when_both_present(db, tmp_path):
+    """IMPORTANT 2: antes, `elif clip_path` fazia o clipe nunca ser enviado
+    quando havia foto (e o config send_clip: true era ignorado). Os dois tem
+    que poder sair para o mesmo evento."""
+    eid, img = _evento(db, tmp_path)
+    clip = tmp_path / "e.mp4"
+    clip.write_bytes(b"x")
+    s = FakeSender()
+    q = AlertQueue(s, db, rate_limit_per_min=600, send_photo=True, send_clip=True)
+    q.start()
+    try:
+        q.enqueue(eid, img, clip, "legenda")
+        _drena(q)
+    finally:
+        q.stop()
+    assert s.fotos and s.fotos[0] == (str(img), "legenda")
+    assert s.clipes and s.clipes[0] == (str(clip), "legenda")
+    assert q.sent_count == 1
+
+
+def test_send_photo_false_skips_photo(db, tmp_path):
+    eid, img = _evento(db, tmp_path)
+    clip = tmp_path / "e.mp4"
+    clip.write_bytes(b"x")
+    s = FakeSender()
+    q = AlertQueue(s, db, rate_limit_per_min=600, send_photo=False, send_clip=True)
+    q.start()
+    try:
+        q.enqueue(eid, img, clip, "legenda")
+        _drena(q)
+    finally:
+        q.stop()
+    assert not s.fotos
+    assert s.clipes
+
+
+def test_send_clip_false_skips_clip(db, tmp_path):
+    eid, img = _evento(db, tmp_path)
+    clip = tmp_path / "e.mp4"
+    clip.write_bytes(b"x")
+    s = FakeSender()
+    q = AlertQueue(s, db, rate_limit_per_min=600, send_photo=True, send_clip=False)
+    q.start()
+    try:
+        q.enqueue(eid, img, clip, "legenda")
+        _drena(q)
+    finally:
+        q.stop()
+    assert s.fotos
+    assert not s.clipes
+
+
+def test_no_media_falls_back_to_text_message(db, tmp_path):
+    """IMPORTANT 3: falha ao salvar a midia (disco cheio -> image_path e
+    clip_path None) nao pode deixar o lojista sem nada — degrada pro texto."""
+    eid, _img_path = _evento(db, tmp_path)
+    s = FakeSender()
+    q = AlertQueue(s, db, rate_limit_per_min=600)
+    q.start()
+    try:
+        q.enqueue(eid, None, None, "legenda do alerta")
+        _drena(q)
+    finally:
+        q.stop()
+    assert not s.fotos and not s.clipes
+    assert "legenda do alerta" in s.mensagens
+    assert q.sent_count == 1
+
+
+def test_all_media_disabled_in_config_falls_back_to_text_message(db, tmp_path):
+    """"tudo desabilitado no config" tambem conta como 'sem midia para
+    enviar' e tem que degradar pro texto."""
+    eid, img = _evento(db, tmp_path)
+    clip = tmp_path / "e.mp4"
+    clip.write_bytes(b"x")
+    s = FakeSender()
+    q = AlertQueue(s, db, rate_limit_per_min=600, send_photo=False, send_clip=False)
+    q.start()
+    try:
+        q.enqueue(eid, img, clip, "legenda")
+        _drena(q)
+    finally:
+        q.stop()
+    assert not s.fotos and not s.clipes
+    assert "legenda" in s.mensagens
+    assert q.sent_count == 1
 
 
 def test_system_alert_uses_message(db, tmp_path):

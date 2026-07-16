@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +23,17 @@ log = logging.getLogger(__name__)
 
 def _slug(nome: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "_", nome).strip("_") or "camera"
+
+
+@dataclass
+class EvidenceResult:
+    """O que `record()` gravou para ESTE evento — quem chama usa isso direto,
+    nunca re-pergunta ao banco 'qual foi o ultimo evento' (com varias câmeras
+    concorrentes, o ultimo pode ser de outra câmera)."""
+    event_id: int
+    image_path: str | None
+    clip_path: str | None
+    ts_local: datetime
 
 
 class EvidenceRecorder:
@@ -44,7 +56,7 @@ class EvidenceRecorder:
         return d
 
     def record(self, event: ConcealmentEvent, camera_name: str,
-               frame_bgr: np.ndarray, clip_buffer=None) -> int:
+               frame_bgr: np.ndarray, clip_buffer=None) -> EvidenceResult:
         agora = datetime.now()
         agora_utc = datetime.now(timezone.utc)
 
@@ -78,7 +90,8 @@ class EvidenceRecorder:
 
         if image_path or clip_path:
             self.db.update_event_paths(event_id, image_path, clip_path)
-        return event_id
+        return EvidenceResult(event_id=event_id, image_path=image_path,
+                              clip_path=clip_path, ts_local=agora)
 
     def _save_clip(self, buf, event, camera_name, agora, base) -> str | None:
         t0 = event.ts - self.cfg.clip_pre_seconds

@@ -31,9 +31,9 @@ def _img():
 def test_record_saves_jpeg_and_row(db, tmp_path):
     rec = EvidenceRecorder(db, EvidenceConfig(dir=str(tmp_path / "ev")),
                            StoreConfig(id="l1", name="Loja 1"))
-    eid = rec.record(_event(), "Caixa 01", _img())
+    res = rec.record(_event(), "Caixa 01", _img())
 
-    assert eid > 0
+    assert res.event_id > 0
     row = db.list_events(limit=1)[0]
     assert row["camera_name"] == "Caixa 01"
     assert row["zone"] == "waist"
@@ -41,6 +41,9 @@ def test_record_saves_jpeg_and_row(db, tmp_path):
     assert row["store_id"] == "l1"
     img_path = Path(row["image_path"])
     assert img_path.exists() and img_path.suffix == ".jpg"
+    # o record() devolve o mesmo caminho que gravou no banco — quem chama usa
+    # isso direto, sem re-consultar o banco (CRITICAL 1).
+    assert res.image_path == row["image_path"]
 
 
 def test_record_saves_clip_when_buffer_given(db, tmp_path):
@@ -50,11 +53,12 @@ def test_record_saves_clip_when_buffer_given(db, tmp_path):
     rec = EvidenceRecorder(db, EvidenceConfig(dir=str(tmp_path / "ev"),
                                               clip_pre_seconds=2.0, clip_post_seconds=0.0),
                            StoreConfig(id="l1", name="Loja 1"))
-    eid = rec.record(_event(ts=4.0), "Caixa 01", _img(), clip_buffer=buf)
+    res = rec.record(_event(ts=4.0), "Caixa 01", _img(), clip_buffer=buf)
 
     row = db.list_events(limit=1)[0]
     assert row["clip_path"]
     assert Path(row["clip_path"]).exists()
+    assert res.clip_path == row["clip_path"]
 
 
 def test_row_is_saved_even_if_file_write_fails(db, tmp_path, monkeypatch):
@@ -64,9 +68,10 @@ def test_row_is_saved_even_if_file_write_fails(db, tmp_path, monkeypatch):
     import cv2
     monkeypatch.setattr(cv2, "imwrite", lambda *a, **k: (_ for _ in ()).throw(OSError("disco cheio")))
 
-    eid = rec.record(_event(), "Caixa 01", _img())
+    res = rec.record(_event(), "Caixa 01", _img())
 
-    assert eid > 0  # o evento existe no banco
+    assert res.event_id > 0  # o evento existe no banco
+    assert res.image_path is None  # sem arquivo — quem chama sabe na hora, sem reconsulta
     row = db.list_events(limit=1)[0]
     assert row["image_path"] in (None, "")  # sem arquivo, mas registrado
 
