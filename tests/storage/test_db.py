@@ -54,6 +54,14 @@ def test_mark_sent(db):
     assert db.list_events(limit=1)[0]["sent_telegram"] == 1
 
 
+def test_update_event_paths(db):
+    eid = _insert(db, image_path=None, clip_path=None)
+    db.update_event_paths(eid, "evidence/a.jpg", "evidence/a.mp4")
+    row = db.list_events(limit=1)[0]
+    assert row["image_path"] == "evidence/a.jpg"
+    assert row["clip_path"] == "evidence/a.mp4"
+
+
 def test_set_feedback(db):
     eid = _insert(db)
     db.set_feedback(eid, "false_positive")
@@ -83,14 +91,15 @@ def test_camera_status_upsert(db):
 
 
 def test_concurrent_inserts_never_lose_events_or_raise(db):
-    """16 threads martelando insert/upsert/list ao mesmo tempo — reproduz o
-    cenário de produção: thread de inferência, UI e watchdog no mesmo
-    objeto Database. Nenhuma exceção pode escapar e nenhuma linha pode
-    sumir."""
+    """16 threads martelando insert/upsert/list/update_event_paths ao mesmo
+    tempo — reproduz o cenário de produção: thread de inferência, UI e
+    watchdog no mesmo objeto Database. Nenhuma exceção pode escapar e
+    nenhuma linha pode sumir."""
     n_insert_threads = 8
     inserts_per_thread = 100
     n_status_threads = 4
     n_list_threads = 4
+    n_update_paths_threads = 4
     errors: list[BaseException] = []
     errors_lock = threading.Lock()
 
@@ -120,10 +129,19 @@ def test_concurrent_inserts_never_lose_events_or_raise(db):
         except BaseException as exc:  # noqa: BLE001
             record_error(exc)
 
+    def update_paths_worker(idx: int) -> None:
+        try:
+            eid = _insert(db, camera_name=f"CamPaths{idx}", image_path=None, clip_path=None)
+            for i in range(50):
+                db.update_event_paths(eid, f"evidence/{idx}-{i}.jpg", f"evidence/{idx}-{i}.mp4")
+        except BaseException as exc:  # noqa: BLE001
+            record_error(exc)
+
     threads = (
         [threading.Thread(target=insert_worker, args=(i,)) for i in range(n_insert_threads)]
         + [threading.Thread(target=status_worker, args=(i,)) for i in range(n_status_threads)]
         + [threading.Thread(target=list_worker) for _ in range(n_list_threads)]
+        + [threading.Thread(target=update_paths_worker, args=(i,)) for i in range(n_update_paths_threads)]
     )
 
     for t in threads:
@@ -133,7 +151,7 @@ def test_concurrent_inserts_never_lose_events_or_raise(db):
 
     assert errors == [], f"exceções levantadas durante acesso concorrente: {errors!r}"
     rows = db.list_events(limit=100000)
-    assert len(rows) == n_insert_threads * inserts_per_thread
+    assert len(rows) == n_insert_threads * inserts_per_thread + n_update_paths_threads
 
 
 def test_camera_status_since_unchanged_while_state_stays_the_same(db):

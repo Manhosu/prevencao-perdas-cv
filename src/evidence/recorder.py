@@ -77,7 +77,7 @@ class EvidenceRecorder:
                 log.exception("falha ao salvar o clipe da evidencia")
 
         if image_path or clip_path:
-            self._update_paths(event_id, image_path, clip_path)
+            self.db.update_event_paths(event_id, image_path, clip_path)
         return event_id
 
     def _save_clip(self, buf, event, camera_name, agora, base) -> str | None:
@@ -97,10 +97,3 @@ class EvidenceRecorder:
         finally:
             wr.release()
         return str(p)
-
-    def _update_paths(self, event_id: int, image_path, clip_path) -> None:
-        with self.db._conn:  # noqa: SLF001 — mesma camada de persistencia
-            self.db._conn.execute(
-                "UPDATE events SET image_path=?, clip_path=? WHERE id=?",
-                (image_path, clip_path, event_id),
-            )
