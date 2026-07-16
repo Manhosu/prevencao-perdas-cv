@@ -6,7 +6,7 @@ models/*_openvino_model/
 models/*.onnx
 config/config.json
 data/
-evidence/
+/evidence/
 logs/
 dev/bin/
 dev/videos/

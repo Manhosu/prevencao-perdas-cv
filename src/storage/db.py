@@ -129,6 +129,17 @@ class Database:
                 "UPDATE events SET sent_telegram=1 WHERE id=?", (event_id,)
             )
 
+    def update_event_paths(self, event_id: int, image_path: str | None,
+                           clip_path: str | None) -> None:
+        """Preenche os caminhos da mídia depois que o evento já foi registrado.
+        O registro vem primeiro (o evento não pode se perder por falha de disco);
+        os arquivos entram depois, quando salvos."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE events SET image_path=?, clip_path=? WHERE id=?",
+                (image_path, clip_path, event_id),
+            )
+
     def set_feedback(self, event_id: int, value: str) -> None:
         if value not in VALID_FEEDBACK:
             raise ValueError(f"feedback inválido: {value}")
