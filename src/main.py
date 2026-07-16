@@ -8,10 +8,17 @@ import argparse
 import logging
 import signal
 import time
+from datetime import datetime
 
+from src.alerts.alert_queue import AlertQueue
+from src.alerts.telegram_alert import TelegramSender
 from src.config.settings import AppConfig, ConfigError
+from src.evidence.recorder import EvidenceRecorder
+from src.evidence.retention import RetentionJob
 from src.inference.engine import InferenceEngine
 from src.pipeline import Pipeline
+from src.storage.db import Database
+from src.watchdog.monitor import Watchdog
 
 
 def main() -> int:
@@ -35,7 +42,19 @@ def main() -> int:
 
     pipeline = Pipeline(cfg, InferenceEngine(cfg.inference))
 
-    def _handle_person(result, frame):
+    db = Database("data/app.db")
+    db.init_schema()
+    recorder = EvidenceRecorder(db, cfg.evidence, cfg.store)
+    sender = TelegramSender(cfg.telegram)
+    alerts = AlertQueue(sender, db, rate_limit_per_min=cfg.telegram.rate_limit_per_min)
+    retention = RetentionJob(db, cfg.evidence)
+    watchdog = Watchdog(pipeline.threads, db, cfg.watchdog, alert_queue=alerts)
+
+    if not sender.configured:
+        log.warning("Telegram sem token/chat_id no config — os alertas ficam so "
+                    "registrados no banco, sem envio.")
+
+    def _on_result(result, frame):
         if result.had_person:
             log.info(
                 "[%s] %d pessoa(s) na zona — ids=%s",
@@ -43,8 +62,17 @@ def main() -> int:
                 len(result.persons),
                 [p.person.track_id for p in result.persons],
             )
+        for ev in result.events:
+            event_id = recorder.record(ev, result.camera_name, frame.image,
+                                       clip_buffer=pipeline.clip_buffers.get(result.camera_name))
+            row = db.list_events(limit=1)[0]
+            caption = sender.caption_for(cfg.store.name, result.camera_name,
+                                         datetime.now(), ev.zone)
+            alerts.enqueue(event_id, row["image_path"], row["clip_path"], caption)
+            log.info("OCULTACAO em '%s' (zona %s, score %.2f) — evidencia #%s",
+                     result.camera_name, ev.zone, ev.score, event_id)
 
-    pipeline.on_result = _handle_person
+    pipeline.on_result = _on_result
 
     stopping = False
 
@@ -69,6 +97,9 @@ def main() -> int:
             log.warning("não foi possível registrar handler de SIGTERM; use Ctrl+C para parar")
 
     try:
+        alerts.start()
+        retention.start()
+        watchdog.start()
         pipeline.start()
         while not stopping:
             time.sleep(args.status_every)
@@ -78,7 +109,11 @@ def main() -> int:
                     name, st["state"], st["fps"], st["dropped"],
                 )
     finally:
+        watchdog.stop()
+        retention.stop()
+        alerts.stop()
         pipeline.stop()
+        db.close()
     return 0
 
 
