@@ -1,7 +1,7 @@
 {
   "store": {
-    "id": "loja-piloto-joaolucas",
-    "name": "Mercado Piloto (Joao Lucas)"
+    "id": "loja-piloto",
+    "name": "Loja Piloto"
   },
   "telegram": {
     "bot_token": "PENDENTE_BOTFATHER",
@@ -37,31 +37,31 @@
   "cameras": [
     {
       "name": "DVR1 Ch08 - Corredor salgadinhos",
-      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.211:554/cam/realmonitor?channel=8&subtype=1",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.0.11:554/cam/realmonitor?channel=8&subtype=1",
       "target_fps": 5,
       "zones": []
     },
     {
       "name": "DVR1 Ch12 - Corredor (angulo bom)",
-      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.211:554/cam/realmonitor?channel=12&subtype=1",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.0.11:554/cam/realmonitor?channel=12&subtype=1",
       "target_fps": 5,
       "zones": []
     },
     {
       "name": "DVR1 Ch16 - Bebidas/Caixa",
-      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.211:554/cam/realmonitor?channel=16&subtype=1",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.0.11:554/cam/realmonitor?channel=16&subtype=1",
       "target_fps": 5,
       "zones": []
     },
     {
       "name": "DVR2 Ch11 - Bebidas (angulo otimo)",
-      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.117:554/cam/realmonitor?channel=11&subtype=1",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.0.117:554/cam/realmonitor?channel=11&subtype=1",
       "target_fps": 5,
       "zones": []
     },
     {
       "name": "DVR2 Ch14 - Visao ampla (fraca)",
-      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.254.117:554/cam/realmonitor?channel=14&subtype=1",
+      "rtsp_url": "rtsp://USUARIO:SENHA@192.168.0.117:554/cam/realmonitor?channel=14&subtype=1",
       "target_fps": 4,
       "zones": []
     }
