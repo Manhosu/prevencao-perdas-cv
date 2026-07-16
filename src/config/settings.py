@@ -137,6 +137,12 @@ class DetectionConfig(_Strict):
     dwell_seconds: float = Field(default=1.2, gt=0)
     window_seconds: float = Field(default=3.0, gt=0)
     cooldown_seconds: float = Field(default=30.0, gt=0)
+    # "Botao de sensibilidade" da calibracao. True (conservador): so alerta
+    # quando a mao chegou vindo da prateleira ou o punho sumiu na zona — quase
+    # nao da alarme falso, mas deixa passar gesto sutil. False (sensivel):
+    # basta a mao permanecer na zona de ocultacao — pega os sutis, ao custo de
+    # mais alarme falso. O ponto certo se mede com video real (sweep).
+    require_approach_or_vanish: bool = True
     weights: Weights = Field(default_factory=Weights)
     zone_weights: ZoneWeights = Field(default_factory=ZoneWeights)
     geometry: Geometry = Field(default_factory=Geometry)

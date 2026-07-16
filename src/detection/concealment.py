@@ -170,7 +170,18 @@ class ConcealmentAnalyzer:
         # Assinatura física de ocultação real: a mão chegou vindo da
         # prateleira (latch de approach) OU sumiu dentro da zona (vanish
         # forte agora dispensa o latch — mão que some é suspeita por si só).
-        real_signature = st.episode_had_approach or sig.vanish > VANISH_STRONG_THRESHOLD
+        #
+        # Este é o "botao de sensibilidade" da calibracao:
+        #  - require_approach_or_vanish=True (conservador): exige a assinatura.
+        #    Quase nao da alarme falso, mas deixa passar gesto sutil (ex.: mao
+        #    que ja estava junto ao corpo e baixa o produto na bolsa).
+        #  - False (sensivel): basta o dwell saturado na zona. Pega os sutis,
+        #    ao custo de mais alarme falso.
+        # O ponto certo se acha medindo com video real da loja (sweep).
+        if self.cfg.require_approach_or_vanish:
+            real_signature = st.episode_had_approach or sig.vanish > VANISH_STRONG_THRESHOLD
+        else:
+            real_signature = True
         if score >= self.cfg.threshold and dwell_ok and sig.zone and real_signature:
             st.state = State.ALERT
             ev = ConcealmentEvent(

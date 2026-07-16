@@ -228,3 +228,25 @@ def test_per_track_state_isolation():
         events += a.update([p_ladrao, p_inocente], [], t)
         t += DT
     assert {e.track_id for e in events} == {1}
+
+
+def test_sensitivity_dial_catches_subtle_gesture_when_relaxed():
+    """O 'botao de sensibilidade' (require_approach_or_vanish).
+
+    Gesto sutil: a mao JA esta junto ao corpo e permanece na zona de ocultacao
+    (baixar um produto na bolsa sem esticar o braco antes e sem o punho sumir).
+    - Conservador (True): NAO dispara (evita alarme falso de mao incidental).
+    - Sensivel (False): dispara (pega o gesto sutil).
+    Este e o trade-off central da calibracao — os dois lados travados por teste.
+    """
+    frames = [((140, 190), 0.9)] * 14  # punho parado na zona 'waist', sempre visivel
+
+    conservador = ConcealmentAnalyzer(
+        DetectionConfig(require_approach_or_vanish=True), fps_hint=FPS)
+    assert _run(conservador, frames) == []
+
+    sensivel = ConcealmentAnalyzer(
+        DetectionConfig(require_approach_or_vanish=False), fps_hint=FPS)
+    eventos = _run(sensivel, frames)
+    assert len(eventos) >= 1
+    assert eventos[0].zone == "waist"
