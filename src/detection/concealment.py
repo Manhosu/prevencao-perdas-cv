@@ -70,6 +70,12 @@ class ConcealmentAnalyzer:
         self.cfg = cfg
         self.fps_hint = fps_hint
         self._tracks: dict[int, _TrackState] = {}
+        # Diagnóstico: o maior score CONTÍNUO do frame (mesmo abaixo do limiar,
+        # mesmo sem disparar). Serve para calibração — ver "quão perto" um gesto
+        # chegou de disparar, e por quê não disparou.
+        self.last_frame_score: float = 0.0
+        self.last_frame_zone: str | None = None
+        self.last_frame_signals: Signals | None = None
 
     def update(
         self, poses: list[PersonPose], objects: list[ObjectDetection], ts: float
@@ -77,6 +83,9 @@ class ConcealmentAnalyzer:
         g = self.cfg.guards
         events: list[ConcealmentEvent] = []
         alive: set[int] = set()
+        self.last_frame_score = 0.0
+        self.last_frame_zone = None
+        self.last_frame_signals = None
 
         for pose in poses:
             tid = pose.person.track_id
@@ -117,6 +126,12 @@ class ConcealmentAnalyzer:
             if best is None:
                 continue
             score, sig = best
+
+            # registra o maior score contínuo do frame (para diagnóstico/calibração)
+            if score >= self.last_frame_score:
+                self.last_frame_score = score
+                self.last_frame_zone = sig.zone
+                self.last_frame_signals = sig
 
             ev = self._advance(st, tid, score, sig, ts, any_reach)
             if ev is not None:

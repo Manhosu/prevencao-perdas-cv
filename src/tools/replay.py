@@ -104,15 +104,21 @@ def replay(video_path, cfg: DetectionConfig, engine, out_video=None, out_csv=Non
         else:
             analyzer.update([], [], ts)
 
+        # score CONTÍNUO do frame (mesmo sem disparar) para o CSV de calibração
+        cont_score = analyzer.last_frame_score
+        cont_zone = analyzer.last_frame_zone or ""
+        cont_sig = analyzer.last_frame_signals
+
         summary.events.extend(events)
         row = {
             "frame": summary.frames, "ts": round(ts, 3), "n_persons": len(tracked),
-            "max_score": round(max_score, 3),
-            "zone": top.zone if top else "",
-            "dwell": top.signals["dwell"] if top else "",
-            "approach": top.signals["approach"] if top else "",
-            "vanish": top.signals["vanish"] if top else "",
-            "retract": top.signals["retract"] if top else "",
+            "max_score": round(cont_score, 3),
+            "disparou": 1 if events else 0,
+            "zone": cont_zone,
+            "dwell": round(cont_sig.dwell, 3) if cont_sig else "",
+            "approach": round(cont_sig.approach, 3) if cont_sig else "",
+            "vanish": round(cont_sig.vanish, 3) if cont_sig else "",
+            "retract": round(cont_sig.retract, 3) if cont_sig else "",
         }
         summary.csv_rows.append(row)
         if writer is not None:
