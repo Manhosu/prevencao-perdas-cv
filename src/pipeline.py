@@ -87,6 +87,16 @@ class Pipeline:
                     self._gates[frame.camera_name] = gate
         return gate
 
+    def invalidate_gate(self, camera_name: str) -> None:
+        """Descarta o PersonGate cacheado desta câmera para que o próximo frame
+        reconstrua com as zonas novas (e com o tamanho de frame corrente).
+
+        Sem isso, o gate criado no 1º frame ficava valendo pra sempre: editar
+        e salvar as zonas na UI não tinha nenhum efeito sobre o monitoramento
+        em execução até reiniciar o processo."""
+        with self._gates_lock:
+            self._gates.pop(camera_name, None)
+
     def process_frame(self, frame: Frame) -> FrameResult:
         # alimenta o buffer ANTES do gate: o clipe precisa do "antes" mesmo
         # nos frames em que ninguém está na zona monitorada.

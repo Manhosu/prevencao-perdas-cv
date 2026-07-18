@@ -98,6 +98,31 @@ def test_bags_are_passed_through():
     assert result.objects[0].label == "backpack"
 
 
+def test_invalidate_gate_faz_zona_nova_valer_no_proximo_frame():
+    """Sem `invalidate_gate`, o `PersonGate` fica cacheado do 1º frame pra
+    sempre: salvar uma zona nova na UI não muda nada no monitoramento em
+    execução até reiniciar o processo — o bug que a revisão pegou."""
+    zona_ampla = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]  # cobre o quadro inteiro
+    engine = FakeEngine(
+        persons=[PersonDetection(bbox=BBox(700, 100, 800, 400), conf=0.9)]  # pés em x=75%
+    )
+    cfg = _cfg([zona_ampla])
+    p = Pipeline(cfg, engine)
+
+    primeiro = p.process_frame(_frame())
+    assert primeiro.had_person is True  # zona ampla cobre a pessoa -> gate criado e cacheado
+
+    # simula o "Salvar zonas" da UI: muta a MESMA CameraConfig que o pipeline
+    # enxerga, para uma zona que EXCLUI a pessoa (metade esquerda; pessoa em x=75%)
+    zona_estreita = [(0.0, 0.0), (0.5, 0.0), (0.5, 1.0), (0.0, 1.0)]
+    cfg.cameras[0].zones = [zona_estreita]
+
+    p.invalidate_gate("cam1")
+
+    segundo = p.process_frame(Frame("cam1", np.zeros((500, 1000, 3), np.uint8), 1.2, 2))
+    assert segundo.had_person is False
+
+
 def test_status_reports_every_camera():
     p = Pipeline(_cfg([]), FakeEngine())
     st = p.status()

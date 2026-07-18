@@ -268,8 +268,22 @@ class MainWindow(QWidget):
             return
         cam.zones = self._zone_editor.zones()
         self.cfg.save(self.config_path)
+        self._invalidar_gate_do_pipeline(cam.name)
         self._zonas_alteradas = False
-        self._zonas_status.setText("Zonas salvas.")
+        self._zonas_status.setText("Zonas salvas e já aplicadas ao monitoramento.")
+
+    def _invalidar_gate_do_pipeline(self, camera_name: str) -> None:
+        """Sem isto, o `PersonGate` cacheado no pipeline (criado no 1º frame)
+        continuaria vigiando a zona ANTIGA até reiniciar o processo — o editor
+        de zonas viraria decorativo. `getattr`/try protege dublês de teste
+        (ou uma versão futura de pipeline) que não tenham este método."""
+        invalidate = getattr(self.pipeline, "invalidate_gate", None)
+        if invalidate is None:
+            return
+        try:
+            invalidate(camera_name)
+        except Exception:
+            log.exception("falha ao invalidar o gate da câmera '%s'", camera_name)
 
     def _url_do_formulario(self) -> str | None:
         marca = self._marca_combo.currentText()
@@ -334,6 +348,16 @@ class MainWindow(QWidget):
         self.cfg.save(self.config_path)
         self._camera_list.addItem(nome)
         self._nome_edit.clear()
+        # O Pipeline já criou seus slots/threads no __init__ (main.py chama
+        # pipeline.start() antes de abrir a janela) — hot-reload é grande
+        # demais para esta correção. Sem o aviso, a câmera nova fica sem
+        # imagem no editor de zonas e não aparece na grade "Ao vivo", sem
+        # nenhuma explicação para o revendedor.
+        QMessageBox.information(
+            self, "Adicionar câmera",
+            "Câmera adicionada e salva. Feche e abra o programa para começar "
+            "a monitorar esta câmera.",
+        )
 
     # --- aba 3: Eventos --------------------------------------------------------
 

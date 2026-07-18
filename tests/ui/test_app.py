@@ -178,6 +178,38 @@ def test_salvar_zonas_sem_camera_selecionada_nao_quebra(tmp_path, db):
     win._salvar_zonas()  # nao ha camera nenhuma: nao pode levantar excecao
 
 
+class FakePipelineComInvalidate(FakePipeline):
+    """Dublê de pipeline que registra chamadas a `invalidate_gate` — usado
+    para provar que `_salvar_zonas` não é mais decorativo: a zona salva tem
+    que invalidar o `PersonGate` cacheado do pipeline em execução."""
+
+    def __init__(self, *a, **k) -> None:
+        super().__init__(*a, **k)
+        self.gates_invalidados: list[str] = []
+
+    def invalidate_gate(self, camera_name: str) -> None:
+        self.gates_invalidados.append(camera_name)
+
+
+def test_salvar_zonas_invalida_gate_do_pipeline(tmp_path, db):
+    """Sem isto (CRITICAL 1 da revisão), salvar a zona não tinha efeito
+    nenhum no monitoramento em execução: o `PersonGate` cacheado no pipeline
+    continuava vigiando a zona antiga até reiniciar o processo."""
+    camera = CameraConfig(name="Caixa 01", rtsp_url="rtsp://x", zones=[])
+    cfg = _cfg([camera])
+    config_path = tmp_path / "config.json"
+    cfg.save(config_path)
+    pipeline = FakePipelineComInvalidate()
+    win = MainWindow(pipeline, db, cfg, config_path)
+
+    win._camera_list.setCurrentRow(0)
+    win._zone_editor.set_zones([[(0.2, 0.2), (0.8, 0.2), (0.8, 0.8)]])
+    win._salvar_zonas()
+
+    assert pipeline.gates_invalidados == ["Caixa 01"]
+    assert "aplicadas" in win._zonas_status.text().lower()
+
+
 # --- ressalva 1: carregar zonas nao marca "alterado" -------------------------
 
 
@@ -275,6 +307,31 @@ def test_adicionar_camera_com_nome_duplicado_nao_adiciona(tmp_path, db):
     win._adicionar_camera()
 
     assert len(win.cfg.cameras) == 1
+
+
+def test_adicionar_camera_avisa_para_reiniciar_o_programa(tmp_path, db, monkeypatch):
+    """CRITICAL 3 da revisão: o `Pipeline` já criou seus slots/threads no
+    `__init__` (o `main.py` chama `pipeline.start()` antes de abrir a
+    janela) — a câmera nova não tem slot, então fica sem imagem no editor de
+    zonas e não aparece na grade "Ao vivo" até reiniciar o processo. Sem
+    aviso nenhum, o revendedor não teria como saber disso."""
+    chamadas = []
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(
+        QMessageBox, "information",
+        staticmethod(lambda *a, **k: chamadas.append(a)),
+    )
+
+    win = _janela(tmp_path, db, cfg=_cfg([]))
+    win._nome_edit.setText("Nova Câmera")
+    win._marca_combo.setCurrentText("Genérico")
+    win._url_manual_edit.setText("rtsp://admin:x@10.0.0.5:554/stream1")
+
+    win._adicionar_camera()
+
+    assert len(chamadas) == 1
+    mensagem = chamadas[0][2]
+    assert "feche e abra" in mensagem.lower()
 
 
 # --- testar conexão (thread) --------------------------------------------------
