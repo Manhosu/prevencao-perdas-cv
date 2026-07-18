@@ -1,12 +1,15 @@
-"""Entrypoint headless. A UI (Plano 3) reaproveita o mesmo Pipeline.
+"""Entrypoint. Headless por padrão; `--ui` abre a janela do Plano 4, que
+reaproveita o mesmo Pipeline/Database/AppConfig já construídos aqui.
 
-    python -m src.main --config config/config.json
+    python -m src.main --config config/config.json          # headless
+    python -m src.main --config config/config.json --ui     # com interface
 """
 from __future__ import annotations
 
 import argparse
 import logging
 import signal
+import sys
 import time
 
 from src.alerts.alert_queue import AlertQueue
@@ -24,6 +27,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Prevenção de Perdas — núcleo")
     ap.add_argument("--config", default="config/config.json")
     ap.add_argument("--status-every", type=float, default=5.0)
+    ap.add_argument("--ui", action="store_true",
+                    help="abre a janela (Plano 4) em vez de rodar headless")
     args = ap.parse_args()
 
     logging.basicConfig(
@@ -100,13 +105,28 @@ def main() -> int:
         retention.start()
         watchdog.start()
         pipeline.start()
-        while not stopping:
-            time.sleep(args.status_every)
-            for name, st in pipeline.status().items():
-                log.info(
-                    "câmera '%s': %s · %.1f fps · %d frames descartados",
-                    name, st["state"], st["fps"], st["dropped"],
-                )
+        if args.ui:
+            # Import tardio: rodar headless (o caso comum, ex.: serviço na
+            # loja) não pode passar a exigir PySide6 nem abrir display algum.
+            from PySide6.QtWidgets import QApplication
+
+            from src.ui.app import MainWindow
+
+            qapp = QApplication.instance() or QApplication(sys.argv)
+            window = MainWindow(pipeline, db, cfg, args.config)
+            window.show()
+            qapp.exec()
+            # Ao fechar a janela, cai para o `finally` abaixo: o shutdown
+            # (pipeline -> watchdog -> retention -> alerts -> db) é o mesmo
+            # do modo headless, nunca um caminho separado.
+        else:
+            while not stopping:
+                time.sleep(args.status_every)
+                for name, st in pipeline.status().items():
+                    log.info(
+                        "câmera '%s': %s · %.1f fps · %d frames descartados",
+                        name, st["state"], st["fps"], st["dropped"],
+                    )
     finally:
         # Ordem importa: para o pipeline PRIMEIRO (para de gerar eventos novos);
         # so entao para watchdog/retention; alerts.stop() por ultimo entre os
