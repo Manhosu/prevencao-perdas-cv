@@ -164,3 +164,26 @@ def test_widget_refresh_sem_nenhum_snapshot_nao_explode():
     widget = LiveViewWidget(model)
 
     widget.refresh()  # so leitura de estado -- nao pode levantar excecao
+
+
+def test_grade_sem_camera_mostra_orientacao(qapp):
+    """Primeira abertura numa loja nova: a tela nao pode ficar em branco —
+    o revendedor precisa saber por onde comecar."""
+    from PySide6.QtWidgets import QLabel
+
+    from src.ui.live_view import LiveViewModel, LiveViewWidget
+
+    class PipelineSemCamera:
+        slots: dict = {}
+
+        def status(self):
+            return {}
+
+    w = LiveViewWidget(LiveViewModel(PipelineSemCamera()))
+    textos = [
+        c.text() for c in w.findChildren(QLabel) if c.text()
+    ]
+    juntos = " ".join(textos).lower()
+    assert "nenhuma câmera" in juntos
+    assert "câmeras & zonas" in juntos  # diz PARA ONDE ir
+    w.grab()  # e renderiza sem explodir

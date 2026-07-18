@@ -176,10 +176,27 @@ class LiveViewWidget(QWidget):
 
     def _build_cards(self) -> None:
         nomes = sorted(self.model.status().keys())
+        if not nomes:
+            # Primeira abertura numa loja nova: sem esta orientação o revendedor
+            # encara uma tela em branco e não sabe por onde começar.
+            self._grid.addWidget(self._aviso_sem_camera(), 0, 0)
+            return
         for i, nome in enumerate(nomes):
             card = _CameraCard(nome)
             self._cards[nome] = card
             self._grid.addWidget(card, i // _COLUMNS, i % _COLUMNS)
+
+    @staticmethod
+    def _aviso_sem_camera() -> QLabel:
+        aviso = QLabel(
+            "Nenhuma câmera configurada ainda.\n\n"
+            "Vá na aba \"Câmeras & Zonas\" para cadastrar a primeira câmera:\n"
+            "escolha a marca do DVR, informe IP, usuário, senha e o canal."
+        )
+        aviso.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        aviso.setWordWrap(True)
+        aviso.setStyleSheet("color: #555; font-size: 14px; padding: 40px;")
+        return aviso
 
     def refresh(self) -> None:
         """Chamado pelo `QTimer`: só leitura de estado, nunca bloqueia a UI."""
