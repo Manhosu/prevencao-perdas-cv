@@ -26,6 +26,49 @@ ZONA_PT = {
 }
 
 
+def descobrir_grupos(bot_token: str, session=None) -> list[dict]:
+    """Descobre sozinho os grupos onde o bot foi adicionado.
+
+    É o que dá AUTONOMIA ao revendedor: em cada loja nova ele cria o grupo,
+    adiciona o MESMO bot, manda qualquer mensagem, e o sistema acha o chat_id
+    sozinho — sem precisar pedir nada para o desenvolvedor. Um bot serve todas
+    as lojas; o que muda por loja é só o grupo.
+
+    Devolve [{chat_id, nome, tipo}]. Nunca levanta: erro de rede ou token
+    inválido devolvem lista vazia (quem chama mostra a mensagem ao usuário).
+    """
+    if not bot_token:
+        return []
+    sess = session or requests.Session()
+    try:
+        r = sess.get(f"{API}/bot{bot_token}/getUpdates", timeout=TIMEOUT)
+        if r.status_code != 200:
+            log.warning("Telegram recusou getUpdates: %s", r.status_code)
+            return []
+        payload = r.json()
+        if not payload.get("ok"):
+            return []
+    except Exception as e:
+        log.warning("nao consegui consultar o Telegram: %s", e)
+        return []
+
+    encontrados: dict[str, dict] = {}
+    for u in payload.get("result", []):
+        for chave in ("message", "my_chat_member", "channel_post", "edited_message"):
+            chat = (u.get(chave) or {}).get("chat") or {}
+            tipo = chat.get("type")
+            # conversa 1-a-1 com o bot nao serve: o alerta vai para o grupo da equipe
+            if tipo not in ("group", "supergroup", "channel"):
+                continue
+            cid = str(chat.get("id"))
+            encontrados.setdefault(cid, {
+                "chat_id": cid,
+                "nome": chat.get("title") or "(sem nome)",
+                "tipo": tipo,
+            })
+    return list(encontrados.values())
+
+
 class TelegramSender:
     def __init__(self, cfg: TelegramConfig, session=None) -> None:
         self.cfg = cfg

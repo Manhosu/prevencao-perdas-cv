@@ -20,3 +20,7 @@ psutil>=6                   # brief: 6.* — instalado 7.2.2
 # Testes
 pytest>=8                   # brief: 8.* — instalado 9.1.1
 pytest-timeout>=2,<3
+
+# Build / instalador (Task 7, Plano 4) — so precisa no venv de quem gera o
+# instalador; nao entra no que roda na loja.
+pyinstaller>=6                # instalado 6.21.0
