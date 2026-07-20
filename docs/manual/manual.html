@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Manual de Instalação — Prevenção de Perdas</title>
+<style>
+  /* ============================================================
+     MANUAL DE CAMPO — Prevenção de Perdas
+     Direção: manual técnico/operacional. Autoridade e clareza.
+     Bahnschrift (industrial, DIN-like) + Georgia (serifada, leitura impressa).
+     ============================================================ */
+
+  :root{
+    --tinta:        #0E1520;   /* azul-noite: vigilância */
+    --tinta-suave:  #2B3A4E;
+    --papel:        #FFFFFF;
+    --papel-morno:  #F7F5F1;   /* leve calor, evita branco clínico */
+    --linha:        #D8D2C8;
+    --ambar:        #C2410C;   /* sinalização: atenção */
+    --ambar-claro:  #FEF3E7;
+    --verde:        #15603A;   /* confirmação */
+    --verde-claro:  #E8F3EC;
+    --cinza:        #5B6673;
+  }
+
+  @page{
+    size: A4;
+    margin: 18mm 16mm 20mm 16mm;
+    @bottom-center{ content: counter(page); }
+  }
+  @page :first{ margin: 0; }
+
+  *{ box-sizing: border-box; }
+
+  html{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body{
+    margin:0;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 10.5pt;
+    line-height: 1.62;
+    color: var(--tinta);
+    background: var(--papel);
+  }
+
+  /* ---------- CAPA ---------- */
+  .capa{
+    height: 297mm;
+    background:
+      radial-gradient(120% 80% at 15% 0%, #1B2940 0%, transparent 55%),
+      linear-gradient(160deg, #0E1520 0%, #16233A 60%, #0B111B 100%);
+    color: #F2EFE9;
+    padding: 34mm 22mm 22mm 22mm;
+    position: relative;
+    overflow: hidden;
+    page-break-after: always;
+    display: flex;
+    flex-direction: column;
+  }
+  /* textura sutil de "varredura" — remete a monitor de CFTV */
+  .capa::after{
+    content:"";
+    position:absolute; inset:0;
+    background: repeating-linear-gradient(
+      to bottom, rgba(255,255,255,.030) 0 1px, transparent 1px 4px);
+    pointer-events:none;
+  }
+  .capa .marca{
+    font-family: Bahnschrift, "DIN Alternate", sans-serif;
+    font-size: 8.5pt; letter-spacing: .42em; text-transform: uppercase;
+    color: #8FA6C4; margin-bottom: auto;
+  }
+  .capa h1{
+    font-family: Bahnschrift, sans-serif;
+    font-weight: 600;
+    font-size: 44pt; line-height: .98; letter-spacing: -.015em;
+    margin: 0 0 6mm 0; max-width: 15cm;
+  }
+  .capa h1 em{
+    display:block; font-style: normal; color: #6E93C7; font-weight: 400;
+  }
+  .capa .linha-corte{
+    width: 42mm; height: 3px; background: var(--ambar); margin: 0 0 7mm 0;
+  }
+  .capa .sub{
+    font-size: 12pt; color: #C3CEDD; max-width: 12.5cm; line-height:1.5;
+  }
+  .capa .rodape{
+    margin-top: 16mm; padding-top: 5mm; border-top: 1px solid #2C3A50;
+    display:flex; justify-content: space-between;
+    font-family: Bahnschrift, sans-serif; font-size: 8.5pt;
+    letter-spacing: .16em; text-transform: uppercase; color: #7C8DA5;
+  }
+
+  /* ---------- ESTRUTURA ---------- */
+  section{ page-break-inside: auto; }
+
+  h2{
+    font-family: Bahnschrift, sans-serif;
+    font-size: 17pt; font-weight: 600; letter-spacing: -.01em;
+    margin: 0 0 4mm 0; padding-bottom: 2.5mm;
+    border-bottom: 2px solid var(--tinta);
+    page-break-after: avoid;
+  }
+  h3{
+    font-family: Bahnschrift, sans-serif;
+    font-size: 11.5pt; font-weight: 600; letter-spacing:.005em;
+    margin: 6mm 0 2mm 0; color: var(--tinta-suave);
+    page-break-after: avoid;
+  }
+  p{ margin: 0 0 3mm 0; }
+  strong{ color: #000; }
+
+  /* passo numerado — numeral editorial grande.
+     O numeral é ABSOLUTO, não grid nem float: os dois fragmentam na impressão
+     e deixavam uma lasca do "01" no rodapé da página anterior. Fora do fluxo,
+     ele acompanha o bloco e nunca se parte (o .passo tem break-inside: avoid). */
+  .passo{
+    padding-left: 23mm;
+    margin: 0 0 10mm 0; page-break-inside: avoid;
+    line-height: 0;   /* a linha anônima do numeral não abre vão antes do título */
+  }
+  /* Recuo pendente em fluxo INLINE — grid, float e position:absolute os três
+     fragmentam na impressão do Chrome. `height:0` faz o numeral não ocupar
+     linha própria (não empurra o título) e transbordar sobre o recuo. */
+  .passo .num{
+    display: inline-block; width: 17mm; height: 0; overflow: visible;
+    margin-left: -23mm; padding-right: 6mm;
+    /* alinha o topo do numeral ao topo do título (medido no PDF: 29.6pt) */
+    position: relative; top: 29.6pt;
+    font-family: Bahnschrift, sans-serif;
+    font-size: 34pt; font-weight: 600; line-height: .85;
+    color: var(--linha); text-align: right; letter-spacing: -.03em;
+  }
+  .passo .corpo{ padding-top: 1mm; line-height: 1.62; }
+  .passo h2{ margin-top: 0; }
+
+  ol.lista, ul.lista{ margin: 0 0 3mm 0; padding-left: 5.5mm; }
+  ol.lista li, ul.lista li{ margin-bottom: 1.8mm; }
+
+  /* ---------- CAIXAS DE AVISO ---------- */
+  .box{
+    border-left: 3px solid; padding: 3.5mm 4.5mm; margin: 4mm 0;
+    page-break-inside: avoid; font-size: 10pt;
+  }
+  .box .rot{
+    font-family: Bahnschrift, sans-serif; font-size: 8pt; font-weight: 600;
+    letter-spacing: .2em; text-transform: uppercase; display:block;
+    margin-bottom: 1.5mm;
+  }
+  .box p:last-child{ margin-bottom: 0; }
+  .atencao{ border-color: var(--ambar); background: var(--ambar-claro); }
+  .atencao .rot{ color: var(--ambar); }
+  .dica{ border-color: var(--verde); background: var(--verde-claro); }
+  .dica .rot{ color: var(--verde); }
+  .nota{ border-color: var(--tinta-suave); background: var(--papel-morno); }
+  .nota .rot{ color: var(--tinta-suave); }
+
+  /* ---------- TABELAS ---------- */
+  table{
+    width:100%; border-collapse: collapse; margin: 3mm 0 5mm 0;
+    font-size: 9.5pt; page-break-inside: avoid;
+  }
+  th{
+    font-family: Bahnschrift, sans-serif; font-weight: 600; font-size: 8.5pt;
+    letter-spacing: .12em; text-transform: uppercase;
+    text-align: left; padding: 2.5mm 3mm;
+    background: var(--tinta); color: #F2EFE9;
+  }
+  td{ padding: 2.5mm 3mm; border-bottom: 1px solid var(--linha); vertical-align: top; }
+  tbody tr:nth-child(even){ background: var(--papel-morno); }
+
+  .cod{
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 9pt; background: var(--papel-morno);
+    padding: .4mm 1.4mm; border: 1px solid var(--linha); border-radius: 2px;
+  }
+
+  /* ---------- CHECKLIST ---------- */
+  .check{ list-style:none; padding:0; margin: 3mm 0; }
+  .check li{
+    padding-left: 8mm; position: relative; margin-bottom: 2.2mm;
+  }
+  .check li::before{
+    content:""; position:absolute; left:0; top:1.4mm;
+    width: 4.2mm; height: 4.2mm; border: 1.4px solid var(--tinta-suave);
+    border-radius: 1px;
+  }
+
+  .quebra{ page-break-before: always; }
+
+  footer.fim{
+    margin-top: 10mm; padding-top: 4mm; border-top: 1px solid var(--linha);
+    font-size: 8.5pt; color: var(--cinza);
+    font-family: Bahnschrift, sans-serif; letter-spacing: .06em;
+    display:flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<!-- ======================= CAPA ======================= -->
+<div class="capa">
+  <div class="marca">Sistema de Prevenção de Perdas</div>
+  <div>
+    <div class="linha-corte"></div>
+    <h1>Manual de<br>Instalação<em>e Configuração</em></h1>
+    <p class="sub">
+      Guia de campo para instalar o sistema de alerta de furto numa loja nova —
+      do zero até os alertas chegando no Telegram da equipe.
+      Escrito para ser seguido sem conhecimento técnico.
+    </p>
+  </div>
+  <div class="rodape">
+    <span>Detecção por Visão Computacional</span>
+    <span>Versão 1.0</span>
+  </div>
+</div>
+
+<!-- ======================= ANTES DE IR ======================= -->
+<section>
+  <h2>Antes de ir à loja</h2>
+  <p>Cinco minutos de preparo evitam uma viagem perdida. Leve estas informações anotadas:</p>
+
+  <table>
+    <thead><tr><th style="width:38%">O que anotar</th><th>Onde consegue</th></tr></thead>
+    <tbody>
+      <tr><td>Marca e modelo do DVR</td><td>Etiqueta atrás ou embaixo do aparelho</td></tr>
+      <tr><td>IP do DVR</td><td>No próprio DVR: <em>Menu → Rede → TCP/IP</em></td></tr>
+      <tr><td>Usuário e senha do DVR</td><td>Com o dono da loja</td></tr>
+      <tr><td>Quais canais monitorar</td><td>Escolhidos junto com o dono (veja a dica abaixo)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box dica">
+    <span class="rot">Dica que vale a instalação inteira</span>
+    <p>Antes de escolher os canais, <strong>olhe a imagem ao vivo de cada câmera</strong>. O sistema
+    precisa enxergar o <strong>corpo e as mãos</strong> das pessoas. Câmera muito alta apontada para
+    baixo, muito distante ou olho-de-peixe funciona mal. Prefira as que pegam a pessoa
+    <strong>de corpo inteiro, de lado ou de frente</strong>.</p>
+  </div>
+
+  <h3>Leve na mochila</h3>
+  <ul class="check">
+    <li>Pen drive com o instalador</li>
+    <li>Este manual (impresso ou no celular)</li>
+    <li>O token do seu bot do Telegram anotado</li>
+  </ul>
+</section>
+
+<!-- ======================= PASSO 1 ======================= -->
+<section>
+  <div class="passo">
+    <div class="num">01</div>
+    <div class="corpo">
+      <h2>Instalar o programa</h2>
+      <ol class="lista">
+        <li>Copie o instalador para o computador da loja.</li>
+        <li>Dê <strong>duplo clique</strong> e siga o assistente (Avançar → Instalar).</li>
+        <li>Marque a opção <strong>“Iniciar com o Windows”</strong> — assim o sistema volta sozinho
+            se o computador reiniciar ou faltar energia.</li>
+        <li>Abra pelo atalho na área de trabalho.</li>
+      </ol>
+
+      <div class="box nota">
+        <span class="rot">Não precisa instalar mais nada</span>
+        <p>Os modelos de inteligência artificial já vêm dentro do instalador. O sistema
+        <strong>funciona mesmo sem internet</strong> na loja.</p>
+      </div>
+
+      <div class="box atencao">
+        <span class="rot">Se for notebook — leia isto</span>
+        <p>Notebook no modo “equilibrado” reduz a velocidade do processador, e o sistema fica lento
+        sem motivo aparente. Faça os dois ajustes:</p>
+        <p><strong>1.</strong> Painel de Controle → Opções de Energia → <strong>Alto desempenho</strong><br>
+           <strong>2.</strong> Deixe o notebook <strong>sempre na tomada</strong></p>
+      </div>
+
+      <div class="box nota">
+        <span class="rot">Aviso do Windows na primeira vez</span>
+        <p>Pode aparecer uma tela azul (“O Windows protegeu o computador”). É normal em programa novo:
+        clique em <span class="cod">Mais informações</span> → <span class="cod">Executar assim mesmo</span>.
+        A primeira abertura demora de 10 a 20 segundos.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= PASSO 2 ======================= -->
+<section>
+  <div class="passo">
+    <div class="num">02</div>
+    <div class="corpo">
+      <h2>Cadastrar as câmeras</h2>
+      <p>Na aba <strong>Câmeras &amp; Zonas</strong>:</p>
+      <ol class="lista">
+        <li>Clique em <strong>Adicionar câmera</strong>.</li>
+        <li>Escolha a <strong>marca</strong> (Intelbras/Dahua ou Hikvision).</li>
+        <li>Preencha <strong>IP, usuário, senha</strong> e o <strong>número do canal</strong>.</li>
+        <li>Clique em <strong>Testar conexão</strong> — deve aparecer
+            <em>“Conectou! A câmera está respondendo.”</em></li>
+        <li>Repita para cada câmera.</li>
+      </ol>
+
+      <div class="box atencao">
+        <span class="rot">Depois de cadastrar todas</span>
+        <p><strong>Feche e abra o programa.</strong> É isso que faz as câmeras novas começarem
+        a ser monitoradas.</p>
+      </div>
+
+      <div class="box nota">
+        <span class="rot">Se o teste falhar</span>
+        <p>Confira o IP, o usuário e a senha, e verifique se o computador está na
+        <strong>mesma rede</strong> do DVR.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= PASSO 3 ======================= -->
+<section>
+  <div class="passo">
+    <div class="num">03</div>
+    <div class="corpo">
+      <h2>Desenhar a área monitorada</h2>
+      <p><strong>Esta é a etapa que mais reduz alarme falso.</strong> Em vez de vigiar a tela inteira,
+      você marca só onde o furto realmente acontece.</p>
+
+      <ol class="lista">
+        <li>Na aba <strong>Câmeras &amp; Zonas</strong>, selecione a câmera.</li>
+        <li>Na imagem, <strong>clique</strong> para marcar os cantos da área.</li>
+        <li><strong>Duplo clique</strong> para fechar a área.</li>
+        <li>Clique em <strong>Salvar zonas</strong> — já vale na hora, sem reiniciar.</li>
+      </ol>
+
+      <div class="box dica">
+        <span class="rot">Como escolher a área</span>
+        <p>Marque a <strong>frente da prateleira de produto caro</strong> (bebida, perfumaria, carnes).
+        <strong>Evite incluir o caixa e o corredor de passagem</strong> — é onde mais gente circula
+        e onde mais nasce alarme falso.</p>
+      </div>
+
+      <div class="box nota">
+        <span class="rot">Se você não marcar nenhuma área</span>
+        <p>O sistema vigia a tela toda. Funciona, mas avisa bem mais.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= PASSO 4 ======================= -->
+<section>
+  <div class="passo">
+    <div class="num">04</div>
+    <div class="corpo">
+      <h2>Ligar o alerta no Telegram</h2>
+
+      <div class="box dica">
+        <span class="rot">Você cria o bot uma vez na vida</span>
+        <p>O <strong>mesmo bot serve todas as suas lojas</strong>. O que muda em cada cliente é só o grupo.</p>
+      </div>
+
+      <h3>Se ainda não tem o bot (só na primeira vez)</h3>
+      <ol class="lista">
+        <li>No Telegram, procure <span class="cod">@BotFather</span> e mande <span class="cod">/newbot</span>.</li>
+        <li>Escolha um nome e um usuário terminando em “bot”.</li>
+        <li>Ele devolve um <strong>token</strong> — guarde bem, é a chave do seu negócio.</li>
+      </ol>
+
+      <h3>Em cada loja nova</h3>
+      <ol class="lista">
+        <li>Crie um <strong>grupo</strong> no Telegram com a equipe da loja.</li>
+        <li>Adicione <strong>o seu bot</strong> nesse grupo.</li>
+        <li>Mande qualquer mensagem no grupo (um “oi” basta).</li>
+        <li>No programa, aba <strong>Configuração</strong>: cole o token e clique em
+            <strong>Procurar meu grupo</strong> — o sistema encontra sozinho.</li>
+        <li>Selecione o grupo e clique em <strong>Salvar configuração do Telegram</strong>.</li>
+      </ol>
+
+      <p>Pronto. Os alertas passam a chegar com <strong>foto, hora e câmera</strong>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= PASSO 5 ======================= -->
+<section>
+  <div class="passo">
+    <div class="num">05</div>
+    <div class="corpo">
+      <h2>Ajustar a sensibilidade</h2>
+      <p>O sistema tem um botão de sensibilidade, como um alarme de fumaça:
+      <strong>mais sensível</strong> pega até gestos sutis, mas avisa mais;
+      <strong>mais conservador</strong> avisa menos, focado no óbvio.</p>
+
+      <h3>Como calibrar na prática</h3>
+      <ol class="lista">
+        <li>Deixe rodando por um ou dois dias.</li>
+        <li>Na aba <strong>Eventos</strong>, veja os alertas que chegaram.</li>
+        <li>Marque cada um: <strong>“Foi furto”</strong> ou <strong>“Foi falso alarme”</strong>.</li>
+        <li>Avisando demais? Aperte a área monitorada (Passo 3) e deixe mais conservador.</li>
+        <li>Deixando passar? Afrouxe um pouco.</li>
+      </ol>
+
+      <div class="box dica">
+        <span class="rot">O sistema melhora com o uso</span>
+        <p>Cada vez que a equipe marca “falso alarme”, o sistema aprende sobre aquela loja.
+        <strong>Não espere estar perfeito no primeiro dia</strong> — a calibração é um processo
+        de alguns dias.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= EXPECTATIVA ======================= -->
+<section>
+  <h2>O que esperar do sistema</h2>
+  <p>Alinhar isto com o dono da loja logo no começo evita frustração depois.</p>
+
+  <table>
+    <thead><tr><th style="width:32%">Item</th><th>Como funciona de verdade</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>O que ele faz bem</strong></td>
+        <td>Avisa a equipe, com foto, quando alguém faz o gesto de esconder produto
+            (mão ao bolso, à bolsa, sob a roupa) dentro da área monitorada.</td>
+      </tr>
+      <tr>
+        <td><strong>O que ele não faz</strong></td>
+        <td>Decidir sozinho se foi furto. <strong>Quem confirma é a pessoa.</strong> Ele é um
+            segundo par de olhos que chama a atenção no momento certo.</td>
+      </tr>
+      <tr>
+        <td><strong>Alarmes falsos</strong></td>
+        <td>Existem em qualquer sistema desses. Reduzem-se com área bem marcada, calibração
+            no uso e a equipe descartando os falsos com um toque.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ======================= PROBLEMAS ======================= -->
+<section class="quebra">
+  <h2>Problemas comuns</h2>
+  <table>
+    <thead><tr><th style="width:36%">Situação</th><th>O que fazer</th></tr></thead>
+    <tbody>
+      <tr><td>“Não consegui conectar” na câmera</td>
+          <td>Confira IP, usuário e senha, e se o PC está na mesma rede do DVR.</td></tr>
+      <tr><td>Câmera aparece <strong>offline</strong></td>
+          <td>Verifique cabo, energia do DVR e a rede. O sistema avisa no Telegram quando
+              cai <em>e</em> quando volta.</td></tr>
+      <tr><td>Alerta não chega no Telegram</td>
+          <td>O bot está no grupo? Alguém mandou mensagem lá? Clique em
+              <strong>Procurar meu grupo</strong> de novo.</td></tr>
+      <tr><td>Sistema lento</td>
+          <td>Notebook: plano <strong>Alto desempenho</strong> e na tomada. Ou reduza o número
+              de câmeras.</td></tr>
+      <tr><td>Avisando demais</td>
+          <td>Aperte a área monitorada (Passo 3) e deixe mais conservador.</td></tr>
+      <tr><td>Câmera nova não aparece</td>
+          <td>Feche e abra o programa.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="margin-top:9mm">Manutenção</h2>
+  <ul class="lista">
+    <li>Fotos e vídeos dos alertas ficam guardados <strong>30 dias</strong> e são apagados
+        sozinhos — não enchem o disco.</li>
+    <li>O computador precisa <strong>ficar ligado</strong> para o sistema vigiar.</li>
+    <li>Com “Iniciar com o Windows” marcado, ele volta sozinho após reinício ou queda de energia.</li>
+  </ul>
+
+  <div class="box atencao">
+    <span class="rot">Aviso legal — LGPD</span>
+    <p>O sistema guarda <strong>fotos de clientes</strong> no computador da loja e as envia ao Telegram.
+    A loja precisa ter <strong>aviso visível de monitoramento por câmera</strong>. A responsabilidade
+    pelo uso das imagens (consentimento, guarda e finalidade) é da loja.</p>
+  </div>
+
+  <footer class="fim">
+    <span>Manual de Instalação — Prevenção de Perdas</span>
+    <span>Versão 1.0</span>
+  </footer>
+</section>
+
+</body>
+</html>
