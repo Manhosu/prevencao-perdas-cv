@@ -17,3 +17,6 @@ relatorio-capacidade.txt
 /build/
 /dist/
 *.spec
+
+# instalador compilado (Inno Setup) — 266 MB, entregue por Drive/WeTransfer
+/dist_installer/
