@@ -41,6 +41,16 @@ HIDDEN_IMPORTS = [
     "PySide6",
 ]
 
+# Pacotes cujos binários precisam ser copiados INTEIROS para o bundle.
+#
+# O OpenVINO carrega frontends (lêem o .xml do modelo) e plugins de
+# dispositivo (rodam a inferência) por DLL dinâmica, em runtime. A análise
+# estática do PyInstaller não vê esse carregamento: o build saía com
+# `openvino.dll` mas sem `openvino_ir_frontend.dll` e sem
+# `openvino_intel_cpu_plugin.dll`. O pacote parecia completo, abria, e só
+# quebrava na primeira detecção real — com "Available frontends: jax pytorch".
+COLLECT_BINARIES = ["openvino"]
+
 
 def _separador_add_data() -> str:
     """No Windows o --add-data usa ';' (o ':' colide com a letra de
@@ -99,6 +109,9 @@ def montar_comando_pyinstaller(raiz: Path) -> list[str]:
 
     for modulo in HIDDEN_IMPORTS:
         comando += ["--hidden-import", modulo]
+
+    for pacote in COLLECT_BINARIES:
+        comando += ["--collect-binaries", pacote]
 
     return comando
 

@@ -171,3 +171,24 @@ def test_build_real_gera_o_executavel():
     resultado = subprocess.run(comando, cwd=RAIZ)
     assert resultado.returncode == 0
     assert (RAIZ / "dist" / APP_NAME / f"{APP_NAME}.exe").exists()
+
+
+# --- runtime do OpenVINO (bug de campo 20/jul/2026) ----------------------
+#
+# O cliente instalou e o programa fechava sozinho. Depois de corrigir o
+# bootstrap do config, apareceu o erro real por baixo:
+#
+#   RuntimeError: Unable to read the model: "yolo11n.xml"
+#   Available frontends: jax pytorch
+#
+# O OpenVINO carrega frontends e plugins de dispositivo por DLL dinâmica em
+# runtime. A análise estática do PyInstaller não enxerga esse carregamento,
+# então o bundle saiu com openvino.dll mas SEM `openvino_ir_frontend.dll`
+# (que lê o .xml) e SEM `openvino_intel_cpu_plugin.dll` (que roda a
+# inferência). O pacote parecia completo e quebrava só na primeira detecção.
+
+def test_coleta_os_binarios_do_openvino():
+    """Sem isto o .exe empacota um OpenVINO que não lê o próprio modelo."""
+    comando = montar_comando_pyinstaller(Path("/proj"))
+    assert "--collect-binaries" in comando
+    assert "openvino" in comando[comando.index("--collect-binaries") + 1]

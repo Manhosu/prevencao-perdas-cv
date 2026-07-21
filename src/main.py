@@ -14,6 +14,7 @@ import time
 
 from src.alerts.alert_queue import AlertQueue
 from src.alerts.telegram_alert import TelegramSender
+from src.config.paths import data_dir, default_config_path, ensure_config
 from src.config.settings import AppConfig, ConfigError
 from src.evidence.recorder import EvidenceRecorder
 from src.evidence.retention import RetentionJob
@@ -23,9 +24,24 @@ from src.storage.db import Database
 from src.watchdog.monitor import Watchdog
 
 
+def carregar_config(path) -> AppConfig:
+    """Carrega o config da loja, semeando um na primeira execução.
+
+    Numa instalação nova não existe `config.json` — e não pode existir, porque
+    ele guarda o token do Telegram do revendedor e as câmeras daquela loja. Sem
+    semear, o app morria aqui com exit 2 e o lojista via a janela abrir e
+    fechar. A tela que cadastra câmera e token está DENTRO do programa, então
+    ele precisa abrir mesmo sem configuração nenhuma."""
+    if ensure_config(path):
+        logging.getLogger("main").info(
+            "primeira execução: configuração criada em %s", path)
+    return AppConfig.load(path)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Prevenção de Perdas — núcleo")
-    ap.add_argument("--config", default="config/config.json")
+    ap.add_argument("--config", default=None,
+                    help="padrão: config.json na pasta de dados do app")
     ap.add_argument("--status-every", type=float, default=5.0)
     ap.add_argument("--ui", action="store_true",
                     help="abre a janela (Plano 4) em vez de rodar headless")
@@ -38,15 +54,20 @@ def main() -> int:
     )
     log = logging.getLogger("main")
 
+    config_path = args.config or default_config_path()
     try:
-        cfg = AppConfig.load(args.config)
-    except ConfigError as e:
+        cfg = carregar_config(config_path)
+    except (ConfigError, OSError) as e:
         log.error("%s", e)
         return 2
 
     pipeline = Pipeline(cfg, InferenceEngine(cfg.inference))
 
-    db = Database("data/app.db")
+    # O banco vai na área gravável: instalado, a pasta do programa fica em
+    # Program Files, onde usuário comum não escreve.
+    banco = data_dir() / "data" / "app.db"
+    banco.parent.mkdir(parents=True, exist_ok=True)
+    db = Database(banco)
     db.init_schema()
     recorder = EvidenceRecorder(db, cfg.evidence, cfg.store)
     sender = TelegramSender(cfg.telegram)
@@ -113,7 +134,10 @@ def main() -> int:
             from src.ui.app import MainWindow
 
             qapp = QApplication.instance() or QApplication(sys.argv)
-            window = MainWindow(pipeline, db, cfg, args.config)
+            # `config_path`, não `args.config`: este último é None quando o
+            # usuário não passou a flag, e a janela grava aqui ao salvar
+            # câmeras, zonas e o token do Telegram.
+            window = MainWindow(pipeline, db, cfg, config_path)
             window.show()
             qapp.exec()
             # Ao fechar a janela, cai para o `finally` abaixo: o shutdown
