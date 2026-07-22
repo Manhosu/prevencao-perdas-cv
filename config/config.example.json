@@ -5,7 +5,8 @@
     "chat_id": "COLOCAR_ID_DO_GRUPO",
     "send_photo": true,
     "send_clip": true,
-    "rate_limit_per_min": 15
+    "rate_limit_per_min": 15,
+    "min_seconds_between_alerts": 90
   },
   "inference": {
     "device": "openvino",
@@ -17,7 +18,7 @@
     "detect_bags": true
   },
   "detection": {
-    "threshold": 0.6,
+    "threshold": 0.75,
     "dwell_seconds": 1.2,
     "window_seconds": 3.0,
     "cooldown_seconds": 30.0

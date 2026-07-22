@@ -163,6 +163,49 @@ def test_duas_cameras_concorrentes_cada_alerta_leva_a_propria_midia(tmp_path):
     db.close()
 
 
+def test_gate_por_camera_grava_tudo_mas_so_alerta_uma_vez(tmp_path):
+    """Anti-enxurrada (bug de campo 21/jul): varios disparos na MESMA camera em
+    sequencia geram evidencia para TODOS (o historico/aba Eventos fica completo),
+    mas o Telegram recebe so o primeiro dentro do intervalo — o resto e engolido
+    pelo CameraAlertGate. E o que impede as 300 mensagens sem apagar o registro."""
+    from src.alerts.rate_gate import CameraAlertGate
+
+    db = Database(tmp_path / "app.db")
+    db.init_schema()
+    store = StoreConfig(id="l1", name="Mercado Teste")
+    rec = EvidenceRecorder(db, EvidenceConfig(dir=str(tmp_path / "ev")), store)
+    sender = FakeSender()
+    fila = AlertQueue(sender, db, rate_limit_per_min=600)
+    fila.start()
+    gate = CameraAlertGate(min_seconds_between_alerts := 90.0)
+    frame = np.zeros((120, 160, 3), np.uint8)
+
+    def on_result(nome_camera, evento):
+        # grava SEMPRE (evidencia/historico), alerta so se o gate liberar
+        res = rec.record(evento, nome_camera, frame)
+        if gate.allow(nome_camera, evento.ts):
+            fila.enqueue(res.event_id, res.image_path, res.clip_path,
+                         f"alerta de {nome_camera}")
+
+    # 3 disparos na Cam 13 em 40s (dentro do intervalo de 90s) + 1 na Cam 12
+    on_result("Cam 13", ConcealmentEvent(1, 0.9, "waist", {}, ts=100.0))
+    on_result("Cam 13", ConcealmentEvent(2, 0.9, "waist", {}, ts=120.0))
+    on_result("Cam 13", ConcealmentEvent(3, 0.9, "torso", {}, ts=140.0))
+    on_result("Cam 12", ConcealmentEvent(4, 0.9, "waist", {}, ts=101.0))
+
+    fim = time.monotonic() + 3
+    while fila.pending > 0 and time.monotonic() < fim:
+        time.sleep(0.02)
+    fila.stop()
+
+    # os 4 eventos viraram evidencia no banco (historico completo)
+    assert len(db.list_events(limit=10)) == 4
+    # mas o Telegram so recebeu 2: 1 da Cam 13 (as outras 2 suprimidas) + 1 da Cam 12
+    assert len(sender.fotos) == 2
+    assert gate.suprimidos("Cam 13") == 2
+    db.close()
+
+
 def test_pipeline_alimenta_clip_buffer(tmp_path):
     cfg = AppConfig(store=StoreConfig(id="l", name="L"),
                     cameras=[CameraConfig(name="cam1", rtsp_url="rtsp://x",

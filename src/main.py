@@ -13,6 +13,7 @@ import sys
 import time
 
 from src.alerts.alert_queue import AlertQueue
+from src.alerts.rate_gate import CameraAlertGate
 from src.alerts.telegram_alert import TelegramSender
 from src.config.paths import data_dir, default_config_path, ensure_config
 from src.config.settings import AppConfig, ConfigError
@@ -80,6 +81,12 @@ def main() -> int:
         log.warning("Telegram sem token/chat_id no config — os alertas ficam so "
                     "registrados no banco, sem envio.")
 
+    # Trava anti-enxurrada POR CÂMERA (bug de campo 21/jul: 6 câmeras de teto
+    # geraram 300+ mensagens numa tarde). O cooldown do analyzer é por pessoa;
+    # este é por câmera. A evidência é gravada SEMPRE (o histórico/aba Eventos
+    # fica completo) — só o envio ao Telegram é que respeita o intervalo.
+    alert_gate = CameraAlertGate(cfg.telegram.min_seconds_between_alerts)
+
     def _on_result(result, frame):
         if result.had_person:
             log.info(
@@ -91,6 +98,12 @@ def main() -> int:
         for ev in result.events:
             res = recorder.record(ev, result.camera_name, frame.image,
                                   clip_buffer=pipeline.clip_buffers.get(result.camera_name))
+            if not alert_gate.allow(result.camera_name, ev.ts):
+                log.info("OCULTACAO em '%s' (evidencia #%s) — alerta SUPRIMIDO "
+                         "(anti-enxurrada; %d suprimidos nesta camera)",
+                         result.camera_name, res.event_id,
+                         alert_gate.suprimidos(result.camera_name))
+                continue
             caption = sender.caption_for(cfg.store.name, result.camera_name,
                                          res.ts_local, ev.zone)
             alerts.enqueue(res.event_id, res.image_path, res.clip_path, caption)

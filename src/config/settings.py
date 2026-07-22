@@ -87,6 +87,13 @@ class TelegramConfig(_Strict):
     send_photo: bool = True
     send_clip: bool = True
     rate_limit_per_min: int = Field(default=15, gt=0)
+    # Intervalo mínimo (segundos) entre alertas DA MESMA câmera. Trava
+    # anti-enxurrada por câmera (ver src/alerts/rate_gate.py): depois que uma
+    # câmera alerta, ela fica muda por este tempo, não importa quantas pessoas
+    # disparem nela. 0 desliga. Padrão 90s: em campo (21/jul) 6 câmeras de teto
+    # geraram 300+ mensagens numa tarde; este teto corta a enxurrada sem
+    # depender de distinguir furto (inviável nessas câmeras de teto).
+    min_seconds_between_alerts: float = Field(default=90.0, ge=0.0)
 
 
 class InferenceConfig(_Strict):
