@@ -437,6 +437,18 @@ class MainWindow(QWidget):
         self._grupo_status.setWordWrap(True)
         layout.addWidget(self._grupo_status)
 
+        # Modo silencioso (bug de campo 23/jul): desmarcar para o sistema
+        # continuar rodando e registrando na aba Eventos, mas parar de mandar
+        # alerta no grupo. É o "modo teste" para calibrar/treinar sem assustar
+        # a loja com alerta errado.
+        self._alertas_check = QCheckBox("Enviar alertas no Telegram")
+        self._alertas_check.setChecked(self.cfg.telegram.enabled)
+        self._alertas_check.setToolTip(
+            "Desmarque para MODO TESTE: o sistema continua vigiando e "
+            "registrando na aba Eventos, mas não manda nada no grupo."
+        )
+        layout.addWidget(self._alertas_check)
+
         self._salvar_telegram_btn = QPushButton("Salvar configuração do Telegram")
         self._salvar_telegram_btn.clicked.connect(self._salvar_telegram)
         layout.addWidget(self._salvar_telegram_btn)
@@ -491,8 +503,10 @@ class MainWindow(QWidget):
 
     def _salvar_telegram(self) -> None:
         self.cfg.telegram.bot_token = self._token_edit.text().strip()
+        self.cfg.telegram.enabled = self._alertas_check.isChecked()
         self.cfg.save(self.config_path)
-        self._grupo_status.setText("Configuração do Telegram salva.")
+        estado = "ligados" if self.cfg.telegram.enabled else "em MODO TESTE (não envia)"
+        self._grupo_status.setText(f"Configuração salva. Alertas {estado}.")
 
     def _rodar_benchmark(self) -> None:
         self._benchmark_output.setPlainText(

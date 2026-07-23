@@ -76,7 +76,15 @@ class TelegramSender:
 
     @property
     def configured(self) -> bool:
+        """Tem credenciais (token + chat_id). NÃO implica que vai enviar —
+        para isso ver `can_send` (respeita o modo silencioso)."""
         return bool(self.cfg.bot_token and self.cfg.chat_id)
+
+    @property
+    def can_send(self) -> bool:
+        """Só envia se tem credenciais E o envio está ligado. É o gate único
+        de todo envio ao Telegram (foto, vídeo, mensagem de sistema)."""
+        return self.configured and self.cfg.enabled
 
     def caption_for(self, store_name: str, camera_name: str,
                     ts_local: datetime, zone: str) -> str:
@@ -88,7 +96,7 @@ class TelegramSender:
                 f"👀 {gesto}")
 
     def _post(self, metodo: str, campo: str, caminho: Path, caption: str) -> bool:
-        if not self.configured:
+        if not self.can_send:
             return False
         url = f"{API}/bot{self.cfg.bot_token}/{metodo}"
         try:
@@ -114,7 +122,7 @@ class TelegramSender:
         return self._post("sendVideo", "video", Path(video_path), caption)
 
     def send_message(self, text: str) -> bool:
-        if not self.configured:
+        if not self.can_send:
             return False
         url = f"{API}/bot{self.cfg.bot_token}/sendMessage"
         try:

@@ -84,6 +84,13 @@ class StoreConfig(_Strict):
 class TelegramConfig(_Strict):
     bot_token: str = ""
     chat_id: str = ""
+    # Master switch de envio ao Telegram. True (padrão) = manda os alertas
+    # normalmente. False = MODO SILENCIOSO: o sistema continua rodando e
+    # gravando tudo na aba Eventos, mas não envia NADA no grupo (nem
+    # ocultação, nem câmera offline). É o "modo teste" para calibrar/treinar
+    # sem assustar a loja com alerta errado (bug de campo 23/jul). Distinto de
+    # `configured` (ter credenciais): desligar não é o mesmo que estar sem token.
+    enabled: bool = True
     send_photo: bool = True
     send_clip: bool = True
     rate_limit_per_min: int = Field(default=15, gt=0)

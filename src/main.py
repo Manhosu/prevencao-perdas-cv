@@ -80,6 +80,9 @@ def main() -> int:
     if not sender.configured:
         log.warning("Telegram sem token/chat_id no config — os alertas ficam so "
                     "registrados no banco, sem envio.")
+    elif not cfg.telegram.enabled:
+        log.warning("MODO TESTE (telegram.enabled=false): o sistema vigia e "
+                    "registra na aba Eventos, mas NAO envia nada no grupo.")
 
     # Trava anti-enxurrada POR CÂMERA (bug de campo 21/jul: 6 câmeras de teto
     # geraram 300+ mensagens numa tarde). O cooldown do analyzer é por pessoa;

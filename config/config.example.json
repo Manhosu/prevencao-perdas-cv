@@ -3,6 +3,7 @@
   "telegram": {
     "bot_token": "COLOCAR_TOKEN_DO_BOTFATHER",
     "chat_id": "COLOCAR_ID_DO_GRUPO",
+    "enabled": true,
     "send_photo": true,
     "send_clip": true,
     "rate_limit_per_min": 15,

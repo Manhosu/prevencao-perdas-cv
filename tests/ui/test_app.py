@@ -437,6 +437,24 @@ def test_botao_procurar_grupo_sem_token_nao_chama_rede(tmp_path, db, monkeypatch
     assert chamadas == []
 
 
+def test_checkbox_modo_silencioso_salva_enabled(tmp_path, db):
+    """Modo teste (bug de campo 23/jul): desmarcar 'Enviar alertas no Telegram'
+    grava enabled=False no config — é a ponte para a loja parar de assustar a
+    dona sem o revendedor precisar editar arquivo. Salvar Telegram persiste o
+    estado do checkbox junto do token, e recarregar o config confirma."""
+    from src.config.settings import AppConfig
+
+    win = _janela(tmp_path, db)
+    assert win.cfg.telegram.enabled is True  # padrao: ligado
+
+    win._alertas_check.setChecked(False)   # revendedor entra em modo teste
+    win._salvar_telegram()
+
+    # persistiu no disco
+    recarregado = AppConfig.load(tmp_path / "config.json")
+    assert recarregado.telegram.enabled is False
+
+
 def test_selecionar_grupo_preenche_chat_id(tmp_path, db, monkeypatch):
     def fake_descobrir_grupos(token, session=None):
         return [{"chat_id": "-100999", "nome": "Alerta Loja", "tipo": "supergroup"}]

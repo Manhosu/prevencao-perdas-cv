@@ -43,6 +43,46 @@ def test_configured_with_token_and_chat():
     assert TelegramSender(_cfg(), session=FakeSession()).configured is True
 
 
+def test_desligado_nao_envia_foto(tmp_path):
+    """Modo silencioso (bug de campo 23/jul: alertas errados assustaram a dona).
+    Com enabled=False o sistema NÃO manda no Telegram — nem faz a chamada HTTP —
+    mesmo com credenciais válidas. A evidência continua sendo gravada no fluxo do
+    _on_result (antes do envio); aqui garantimos que o envio é o que fica mudo."""
+    img = tmp_path / "a.jpg"
+    img.write_bytes(b"x")
+    sess = FakeSession()
+    s = TelegramSender(_cfg(enabled=False), session=sess)
+
+    assert s.send_photo(img, "legenda") is False
+    assert sess.calls == []  # nenhuma chamada de rede
+
+
+def test_desligado_nao_envia_mensagem_de_sistema():
+    """Vale também para as mensagens de câmera offline/online — no modo teste
+    o grupo fica 100% mudo."""
+    sess = FakeSession()
+    s = TelegramSender(_cfg(enabled=False), session=sess)
+    assert s.send_message("Câmera Cam10 voltou ao normal.") is False
+    assert sess.calls == []
+
+
+def test_ligado_e_o_padrao_e_envia():
+    """enabled é True por padrão: instalações atuais não mudam de comportamento."""
+    assert _cfg().enabled is True
+    sess = FakeSession()
+    s = TelegramSender(_cfg(), session=sess)
+    assert s.send_message("oi") is True
+    assert len(sess.calls) == 1
+
+
+def test_configured_independe_de_enabled():
+    """`configured` = tem credenciais; `enabled` = master switch de envio. São
+    coisas distintas: desligar não é o mesmo que estar sem token."""
+    s = TelegramSender(_cfg(enabled=False), session=FakeSession())
+    assert s.configured is True
+    assert s.can_send is False
+
+
 def test_send_photo_posts_to_sendphoto(tmp_path):
     img = tmp_path / "a.jpg"
     img.write_bytes(b"x")
