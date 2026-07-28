@@ -79,6 +79,19 @@ class _Strict(BaseModel):
 class StoreConfig(_Strict):
     id: str
     name: str
+    # Número do cliente/loja (opcional). Quando o revendedor opera vários
+    # mercados e todos os alertas caem no MESMO grupo de revisão, o número
+    # deixa claro de qual loja veio cada alerta, pra encaminhar pro grupo
+    # certo. Ex.: "Mercado Julie #1". 0/None = sem número (loja única).
+    numero: int | None = None
+
+    @property
+    def display_name(self) -> str:
+        """Nome que aparece no alerta: 'Mercado Julie #1' se houver número,
+        senão só 'Mercado Julie'."""
+        if self.numero:
+            return f"{self.name} #{self.numero}"
+        return self.name
 
 
 class TelegramConfig(_Strict):

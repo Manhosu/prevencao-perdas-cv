@@ -107,7 +107,7 @@ def main() -> int:
                          result.camera_name, res.event_id,
                          alert_gate.suprimidos(result.camera_name))
                 continue
-            caption = sender.caption_for(cfg.store.name, result.camera_name,
+            caption = sender.caption_for(cfg.store.display_name, result.camera_name,
                                          res.ts_local, ev.zone)
             alerts.enqueue(res.event_id, res.image_path, res.clip_path, caption)
             log.info("OCULTACAO em '%s' (zona %s, score %.2f) — evidencia #%s",
