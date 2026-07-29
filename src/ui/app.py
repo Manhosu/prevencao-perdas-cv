@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QSignalBlocker, QThread, Signal
+from PySide6.QtCore import Qt, QSignalBlocker, QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSlider,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -52,6 +53,8 @@ from src.alerts.telegram_alert import descobrir_grupos
 from src.config.settings import AppConfig, CameraConfig
 from src.ui.camera_form import MARCAS, build_rtsp_url, test_connection
 from src.ui.event_log import EventLogModel
+from src.ui.sensitivity import rotulo as sensibilidade_rotulo
+from src.ui.sensitivity import slider_para_threshold, threshold_para_slider
 from src.ui.live_view import LiveViewModel, LiveViewWidget
 from src.ui.zone_editor import ZoneEditor
 
@@ -453,6 +456,26 @@ class MainWindow(QWidget):
         self._salvar_telegram_btn.clicked.connect(self._salvar_telegram)
         layout.addWidget(self._salvar_telegram_btn)
 
+        # Sensibilidade: o revendedor não deve pensar em "threshold 0.85" — mexe
+        # num slider "conservador → sensível". Antes disso só dava pra ajustar
+        # editando o config.json na mão. Vale ao reiniciar (o analyzer lê o
+        # limiar na criação, como o cadastro de câmera).
+        layout.addWidget(QLabel("Sensibilidade dos alertas"))
+        self._sens_slider = QSlider(Qt.Orientation.Horizontal)
+        self._sens_slider.setRange(0, 100)
+        self._sens_slider.setValue(threshold_para_slider(self.cfg.detection.threshold))
+        self._sens_slider.valueChanged.connect(self._on_sensibilidade_mudou)
+        layout.addWidget(self._sens_slider)
+
+        self._sens_label = QLabel()
+        self._sens_label.setWordWrap(True)
+        layout.addWidget(self._sens_label)
+
+        self._salvar_sens_btn = QPushButton("Salvar sensibilidade")
+        self._salvar_sens_btn.clicked.connect(self._salvar_sensibilidade)
+        layout.addWidget(self._salvar_sens_btn)
+        self._on_sensibilidade_mudou(self._sens_slider.value())  # preenche o rótulo
+
         self._benchmark_btn = QPushButton("Teste de capacidade")
         self._benchmark_btn.clicked.connect(self._rodar_benchmark)
         layout.addWidget(self._benchmark_btn)
@@ -507,6 +530,23 @@ class MainWindow(QWidget):
         self.cfg.save(self.config_path)
         estado = "ligados" if self.cfg.telegram.enabled else "em MODO TESTE (não envia)"
         self._grupo_status.setText(f"Configuração salva. Alertas {estado}.")
+
+    def _on_sensibilidade_mudou(self, valor: int) -> None:
+        """Atualiza o rótulo enquanto o revendedor arrasta o slider (só texto,
+        não salva)."""
+        thr = slider_para_threshold(valor)
+        self._sens_label.setText(f"{sensibilidade_rotulo(thr)}  (limiar {thr:.2f})")
+
+    def _salvar_sensibilidade(self) -> None:
+        """Grava o limiar escolhido no config. Vale ao reiniciar o programa (o
+        analyzer lê o limiar na criação, igual ao cadastro de câmera)."""
+        thr = slider_para_threshold(self._sens_slider.value())
+        self.cfg.detection.threshold = thr
+        self.cfg.save(self.config_path)
+        self._sens_label.setText(
+            f"{sensibilidade_rotulo(thr)}  (limiar {thr:.2f}) — salvo. "
+            "Feche e abra o programa para aplicar."
+        )
 
     def _rodar_benchmark(self) -> None:
         self._benchmark_output.setPlainText(

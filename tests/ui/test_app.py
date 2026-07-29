@@ -437,6 +437,20 @@ def test_botao_procurar_grupo_sem_token_nao_chama_rede(tmp_path, db, monkeypatch
     assert chamadas == []
 
 
+def test_slider_sensibilidade_salva_threshold(tmp_path, db):
+    """O controle de sensibilidade na UI grava o detection.threshold no config
+    (pedido de campo: revendedor não tinha como ajustar sem editar arquivo)."""
+    from src.config.settings import AppConfig
+    from src.ui.sensitivity import slider_para_threshold
+
+    win = _janela(tmp_path, db)
+    win._sens_slider.setValue(0)          # mais conservador
+    win._salvar_sensibilidade()
+
+    recarregado = AppConfig.load(tmp_path / "config.json")
+    assert recarregado.detection.threshold == slider_para_threshold(0)  # 0.90
+
+
 def test_checkbox_modo_silencioso_salva_enabled(tmp_path, db):
     """Modo teste (bug de campo 23/jul): desmarcar 'Enviar alertas no Telegram'
     grava enabled=False no config — é a ponte para a loja parar de assustar a
