@@ -81,7 +81,7 @@ def ensure_config(path: str | Path) -> bool:
             "O instalador foi gerado sem o config.example.json."
         )
 
-    dados = json.loads(exemplo.read_text(encoding="utf-8"))
+    dados = json.loads(exemplo.read_text(encoding="utf-8-sig"))
 
     # Modelos: caminho ABSOLUTO pro bundle. Relativo faria o engine procurar
     # (e tentar exportar) o cache OpenVINO dentro de Program Files.

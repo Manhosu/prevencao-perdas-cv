@@ -287,7 +287,10 @@ class AppConfig(_Strict):
         if not p.exists():
             raise ConfigError(f"arquivo de configuração não encontrado: {p}")
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
+            # utf-8-sig (não utf-8): tolera o BOM que o Bloco de Notas do
+            # Windows adiciona ao salvar — o revendedor edita o config.json na
+            # mão, e sem isso o Notepad quebraria o sistema com "Unexpected BOM".
+            data = json.loads(p.read_text(encoding="utf-8-sig"))
         except json.JSONDecodeError as e:
             raise ConfigError(f"JSON inválido em {p}: {e}") from e
         try:
