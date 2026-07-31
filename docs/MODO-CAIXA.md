@@ -39,7 +39,17 @@ Depois de editar, **feche e abra o programa**.
 - **Não precisa desenhar zona** — sem zona, o sistema vigia o quadro todo, que é o que se quer no caixa. (Se desenhar, ele só olha quem está na área marcada.)
 - Telegram: aponte pro grupo da equipe do caixa (ou pro grupo de revisão, se preferir).
 
-## O que NÃO está incluído (com honestidade)
+## Validação (30/jul) — o que foi medido
 
-- **Detecção de arma:** ficou de fora de propósito — arma é objeto pequeno, incerto de longe, e pode falhar justo no momento crítico. O gesto de mãos pra cima **já cobre o assalto** (é a reação ao assalto), de forma muito mais confiável.
-- **Invasão do balcão** (mão passando sobre o caixa): planejada como próximo passo, feita com cuidado.
+O gesto foi testado no pipeline real (pose + `PanicDetector`) frame a frame em **vídeos reais**:
+
+- **Gesto sustentado** (pessoa de mãos erguidas por alguns segundos): **disparou** — correto.
+- **Braço erguido passageiro** (polichinelo, mãos sobem e descem rápido): a pose vê o gesto, mas o **hold de 2s suprime** → **0 disparo** — correto, não é pânico.
+- **39 fotos de gente normal** (parada, andando, caixa): **0 falso-positivo**.
+
+Ou seja: pega o gesto deliberado, ignora braço erguido passageiro, **não spamma**.
+
+## O que NÃO está incluído — e por quê (medido)
+
+- **Detecção de arma:** testei **6 modelos** de arma prontos contra um conjunto real (armas escancaradas × celulares × cenas de loja). No ponto em que o falso-positivo em celular fica ≤5% (a exigência: *não confundir celular com arma*), o melhor modelo pega só **18%** das armas óbvias; os outros 0–6%. Pra pegar mais, o falso em celular vai a 20–42%. **Não existe ajuste que dispare em arma óbvia sem confundir celular** — enviar isso recriaria a enxurrada de alarme falso, agora gritando "ASSALTO". O **gesto de mãos-pra-cima já é a versão confiável** do mesmo produto (é a reação ao assalto).
+- **Invasão do balcão** (cliente tentando abrir o caixa): *plausível, mas não pronto.* "Mão na zona do caixa" dispararia no próprio funcionário (abrir caixa, passar pano) — o falso-alerta que se quer evitar. As versões confiáveis (pessoa fora de horário; 2ª pessoa atrás do balcão) precisam ser **medidas em filmagem real do balcão** antes de prometer — mesma disciplina de go/no-go usada no resto do sistema.
