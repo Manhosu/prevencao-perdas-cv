@@ -95,6 +95,16 @@ class TelegramSender:
                 f"🕒 {ts_local.strftime('%d/%m/%Y %H:%M:%S')}\n"
                 f"👀 {gesto}")
 
+    def caption_panico(self, store_name: str, camera_name: str,
+                       ts_local: datetime) -> str:
+        """Legenda do alerta de PÂNICO (modo caixa): mãos acima da cabeça =
+        possível assalto. Tom de urgência, distinto do alerta de ocultação."""
+        return (f"🚨 ALERTA DE PÂNICO — mãos levantadas no caixa\n"
+                f"🏪 {store_name}\n"
+                f"📷 {camera_name}\n"
+                f"🕒 {ts_local.strftime('%d/%m/%Y %H:%M:%S')}\n"
+                f"🆘 Possível assalto — verifique agora")
+
     def _post(self, metodo: str, campo: str, caminho: Path, caption: str) -> bool:
         if not self.can_send:
             return False

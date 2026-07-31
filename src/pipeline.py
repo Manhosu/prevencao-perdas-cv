@@ -14,6 +14,7 @@ from src.capture.rtsp_capture import CameraThread
 from src.config.settings import AppConfig
 from src.core.types import CameraState, Frame, ObjectDetection, PersonPose
 from src.detection.concealment import ConcealmentAnalyzer, ConcealmentEvent
+from src.detection.panic import PanicConfig, PanicDetector
 from src.detection.person_gate import PersonGate
 from src.detection.tracker import Tracker
 from src.evidence.clip_buffer import ClipBuffer
@@ -55,13 +56,26 @@ class Pipeline:
             )
             for c in self.cameras
         }
-        self._analyzers: dict[str, ConcealmentAnalyzer] = {
-            c.name: ConcealmentAnalyzer(
-                c.effective_detection(cfg.detection),
-                fps_hint=c.target_fps,
-            )
-            for c in self.cameras
-        }
+        # Um detector por câmera: ConcealmentAnalyzer (modo ocultação) OU
+        # PanicDetector (modo caixa — mãos acima da cabeça = assalto). O modo
+        # vem da config de detecção (efetiva, respeitando override por câmera).
+        self._analyzers: dict = {}
+        for c in self.cameras:
+            det_cfg = c.effective_detection(cfg.detection)
+            if det_cfg.mode == "panico":
+                pc = det_cfg.panic
+                self._analyzers[c.name] = PanicDetector(
+                    PanicConfig(
+                        hold_seconds=pc.hold_seconds,
+                        cooldown_seconds=pc.cooldown_seconds,
+                        wrist_conf_min=pc.wrist_conf_min,
+                        track_lost_seconds=pc.track_lost_seconds,
+                    )
+                )
+            else:
+                self._analyzers[c.name] = ConcealmentAnalyzer(
+                    det_cfg, fps_hint=c.target_fps
+                )
         # "antes" do clipe de evidência: alimentado a cada frame, mesmo sem
         # pessoa na zona — é o que garante o gesto inteiro no clipe salvo.
         self.clip_buffers: dict[str, ClipBuffer] = {
@@ -97,6 +111,16 @@ class Pipeline:
         with self._gates_lock:
             self._gates.pop(camera_name, None)
 
+    def _run_analyzer(self, camera_name, poses, objects, ts) -> list:
+        """Chama o detector da câmera com a assinatura certa. O PanicDetector
+        (modo caixa) usa (poses, ts); o ConcealmentAnalyzer usa (poses,
+        objects, ts). Assim o modo pânico e o modo ocultação compartilham todo
+        o resto do pipeline (evidência, alerta, watchdog)."""
+        analyzer = self._analyzers[camera_name]
+        if isinstance(analyzer, PanicDetector):
+            return analyzer.update(poses, ts)
+        return analyzer.update(poses, objects, ts)
+
     def process_frame(self, frame: Frame) -> FrameResult:
         # alimenta o buffer ANTES do gate: o clipe precisa do "antes" mesmo
         # nos frames em que ninguém está na zona monitorada.
@@ -110,13 +134,13 @@ class Pipeline:
             # Caminho barato: sem pessoa na zona, nada de pose. É por isso que
             # câmera de corredor vazio quase não custa CPU.
             self._trackers[frame.camera_name].update([], frame.ts)
-            self._analyzers[frame.camera_name].update([], [], frame.ts)
+            self._run_analyzer(frame.camera_name, [], [], frame.ts)
             result = FrameResult(frame.camera_name, had_person=False)
         else:
             tracked = self._trackers[frame.camera_name].update(inside, frame.ts)
             keypoints = self.engine.pose(frame.image, [p.bbox for p in tracked])
             poses = [PersonPose(person=p, keypoints=k) for p, k in zip(tracked, keypoints)]
-            events = self._analyzers[frame.camera_name].update(poses, objects, frame.ts)
+            events = self._run_analyzer(frame.camera_name, poses, objects, frame.ts)
             result = FrameResult(frame.camera_name, poses, objects, had_person=True, events=events)
 
         self._emit(result, frame)

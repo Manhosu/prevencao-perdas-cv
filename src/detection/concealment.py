@@ -49,6 +49,7 @@ class ConcealmentEvent:
     zone: str
     signals: dict
     ts: float
+    kind: str = "ocultacao"  # distingue do evento de pânico no envio do alerta
 
 
 @dataclass

@@ -159,7 +159,22 @@ class Guards(_Strict):
     track_lost_seconds: float = Field(default=2.0, gt=0)
 
 
+class PanicConfig(_Strict):
+    """Modo caixa: as duas mãos acima da cabeça por N segundos → alerta de
+    pânico (assalto). Ver src/detection/panic.py."""
+    hold_seconds: float = Field(default=2.0, gt=0)
+    cooldown_seconds: float = Field(default=30.0, gt=0)
+    wrist_conf_min: float = Field(default=0.30, ge=0.0, le=1.0)
+    track_lost_seconds: float = Field(default=2.0, gt=0)
+
+
 class DetectionConfig(_Strict):
+    # "ocultacao" (padrão): detecta gesto de esconder produto (câmera de sala).
+    # "panico": modo caixa — mãos acima da cabeça por 2s dispara alerta de
+    # assalto. Gesto claro, funciona bem de qualquer ângulo (o detector de
+    # furto de teto se mostrou inviável; ver memória de 29/jul).
+    mode: str = "ocultacao"
+    panic: PanicConfig = Field(default_factory=PanicConfig)
     threshold: float = Field(default=0.60, ge=0.0, le=1.0)
     dwell_seconds: float = Field(default=1.2, gt=0)
     window_seconds: float = Field(default=3.0, gt=0)
@@ -174,6 +189,14 @@ class DetectionConfig(_Strict):
     zone_weights: ZoneWeights = Field(default_factory=ZoneWeights)
     geometry: Geometry = Field(default_factory=Geometry)
     guards: Guards = Field(default_factory=Guards)
+
+    @model_validator(mode="after")
+    def _mode_valido(self) -> "DetectionConfig":
+        if self.mode not in ("ocultacao", "panico"):
+            raise ValueError(
+                f"detection.mode inválido: '{self.mode}'. Use 'ocultacao' ou 'panico'."
+            )
+        return self
 
     @model_validator(mode="after")
     def _cooldown_covers_window(self) -> "DetectionConfig":

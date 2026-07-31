@@ -101,17 +101,25 @@ def main() -> int:
         for ev in result.events:
             res = recorder.record(ev, result.camera_name, frame.image,
                                   clip_buffer=pipeline.clip_buffers.get(result.camera_name))
-            if not alert_gate.allow(result.camera_name, ev.ts):
+            panico = getattr(ev, "kind", "ocultacao") == "panico"
+            # Pânico é assalto: NÃO passa pelo anti-enxurrada por câmera (não se
+            # segura um alerta de assalto por causa de rate-limit).
+            if not panico and not alert_gate.allow(result.camera_name, ev.ts):
                 log.info("OCULTACAO em '%s' (evidencia #%s) — alerta SUPRIMIDO "
                          "(anti-enxurrada; %d suprimidos nesta camera)",
                          result.camera_name, res.event_id,
                          alert_gate.suprimidos(result.camera_name))
                 continue
-            caption = sender.caption_for(cfg.store.display_name, result.camera_name,
-                                         res.ts_local, ev.zone)
+            if panico:
+                caption = sender.caption_panico(cfg.store.display_name,
+                                                result.camera_name, res.ts_local)
+            else:
+                caption = sender.caption_for(cfg.store.display_name, result.camera_name,
+                                             res.ts_local, ev.zone)
             alerts.enqueue(res.event_id, res.image_path, res.clip_path, caption)
-            log.info("OCULTACAO em '%s' (zona %s, score %.2f) — evidencia #%s",
-                     result.camera_name, ev.zone, ev.score, res.event_id)
+            log.info("%s em '%s' — evidencia #%s",
+                     "PANICO" if panico else f"OCULTACAO (zona {ev.zone}, score {ev.score:.2f})",
+                     result.camera_name, res.event_id)
 
     pipeline.on_result = _on_result
 
