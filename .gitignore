@@ -20,3 +20,12 @@ relatorio-capacidade.txt
 
 # instalador compilado (Inno Setup) — 266 MB, entregue por Drive/WeTransfer
 /dist_installer/
+
+# vídeos do cliente (ROSTOS REAIS) e material de teste — NUNCA versionar
+# (repo é público). Cobre os YK2*.mp4 na raiz e qualquer vídeo baixado.
+*.mp4
+*.mov
+*.avi
+/scratchpad_arma/
+/scratchpad/
+YK2*
