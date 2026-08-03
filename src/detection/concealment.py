@@ -179,7 +179,16 @@ class ConcealmentAnalyzer:
         #  - False (sensivel): basta o dwell saturado na zona. Pega os sutis,
         #    ao custo de mais alarme falso.
         # O ponto certo se acha medindo com video real da loja (sweep).
-        if self.cfg.require_approach_or_vanish:
+        if self.cfg.require_approach_before_conceal:
+            # Modo sequência (o mais estrito): a mão TEM que ter ido à
+            # prateleira (approach) antes — o "pegar produto" da cadeia de
+            # furto. Aqui o vanish sozinho NÃO basta: virar de costas faz o
+            # punho sumir numa zona do corpo sem nenhum reach antes, e era
+            # justamente isso que disparava o falso de campo. Exigir o latch
+            # de approach mata esse falso (e o de "passar na área", que também
+            # não tem reach), preservando o furto de verdade (reach→ocultar).
+            real_signature = st.episode_had_approach
+        elif self.cfg.require_approach_or_vanish:
             real_signature = st.episode_had_approach or sig.vanish > VANISH_STRONG_THRESHOLD
         else:
             real_signature = True

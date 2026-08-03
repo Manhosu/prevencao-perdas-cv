@@ -230,6 +230,53 @@ def test_per_track_state_isolation():
     assert {e.track_id for e in events} == {1}
 
 
+def _pose_costas(track_id, wrist_xy, *, wrist_conf=0.9):
+    """Pessoa DE COSTAS (rosto sem confiança) com o punho na posição dada.
+    É a pose do falso-positivo de campo: a pessoa vira de costas, a mão fica
+    junto ao corpo e o punho some — sem nunca ter ido à prateleira."""
+    kp = np.zeros((17, 3), dtype=np.float32)
+    kp[KP["left_shoulder"]] = [90, 100, 0.9]
+    kp[KP["right_shoulder"]] = [110, 100, 0.9]
+    kp[KP["left_hip"]] = [92, 200, 0.9]
+    kp[KP["right_hip"]] = [108, 200, 0.9]
+    # nariz/olhos ausentes (conf 0) → BodyFrame marca facing_back
+    kp[KP["right_wrist"]] = [wrist_xy[0], wrist_xy[1], wrist_conf]
+    return PersonPose(person=PersonDetection(bbox=BBox(80, 60, 120, 300), conf=0.9,
+                                             track_id=track_id), keypoints=kp)
+
+
+def test_modo_sequencia_suprime_vanish_sem_reach():
+    """Falso-positivo de campo "virei de costas e disparou": a pessoa NÃO pega
+    produto — vira de costas, leva a mão ao corpo e o punho SOME. O `vanish`
+    sozinho dispara no modo conservador (assinatura de ocultação sem reach).
+
+    No modo SEQUÊNCIA (require_approach_before_conceal) a ocultação só vale se
+    veio de um reach à prateleira antes — então virar de costas não dispara,
+    mas o furto de verdade (reach→ocultar) continua disparando."""
+    # de costas, mão direto na zona do corpo (SEM reach antes) e some
+    frames_costas = [((108, 150), 0.9)] * 3 + [((108, 150), 0.05)] * 8
+
+    def run_costas(analyzer):
+        events, t = [], 0.0
+        for wrist_xy, conf in frames_costas:
+            events += analyzer.update([_pose_costas(1, wrist_xy, wrist_conf=conf)], [], t)
+            t += DT
+        return events
+
+    conservador = ConcealmentAnalyzer(
+        DetectionConfig(require_approach_or_vanish=True), fps_hint=FPS)
+    assert len(run_costas(conservador)) >= 1        # o falso-positivo atual
+
+    sequencia = ConcealmentAnalyzer(
+        DetectionConfig(require_approach_before_conceal=True), fps_hint=FPS)
+    assert run_costas(sequencia) == []              # sem reach antes → não dispara
+
+    # e o FURTO real (reach→cintura→vanish) continua disparando no modo sequência
+    furto = [((200, 90), 0.9)] * 3 + [((130, 205), 0.9)] * 2 + [((130, 205), 0.05)] * 8
+    assert len(_run(ConcealmentAnalyzer(
+        DetectionConfig(require_approach_before_conceal=True), fps_hint=FPS), furto)) >= 1
+
+
 def test_sensitivity_dial_catches_subtle_gesture_when_relaxed():
     """O 'botao de sensibilidade' (require_approach_or_vanish).
 

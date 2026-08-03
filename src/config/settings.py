@@ -185,6 +185,15 @@ class DetectionConfig(_Strict):
     # basta a mao permanecer na zona de ocultacao — pega os sutis, ao custo de
     # mais alarme falso. O ponto certo se mede com video real (sweep).
     require_approach_or_vanish: bool = True
+    # Modo SEQUÊNCIA (o mais estrito) — resposta ao falso-positivo de campo
+    # "virei de costas e disparou". Quando True, a ocultação SÓ vale se a mão
+    # veio de um reach à prateleira ANTES (o "pegar produto" da cadeia furto):
+    # exige a sequência reach->ocultar, e o `vanish` sozinho deixa de disparar.
+    # Mata "virar de costas" (punho some sem reach) e "passar na área" (dwell
+    # sem reach), ao custo de perder o gesto que já nasce junto ao corpo. Fica
+    # OFF por padrão: só se liga depois de medir detecção×falso em vídeo real
+    # da câmera na altura certa (a de teto continua sendo muralha à parte).
+    require_approach_before_conceal: bool = False
     weights: Weights = Field(default_factory=Weights)
     zone_weights: ZoneWeights = Field(default_factory=ZoneWeights)
     geometry: Geometry = Field(default_factory=Geometry)
