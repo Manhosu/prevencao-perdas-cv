@@ -1,5 +1,5 @@
 {
-  "store": { "id": "mercado-piloto", "name": "Mercado Piloto" },
+  "store": { "id": "loja", "name": "Minha Loja" },
   "telegram": {
     "bot_token": "COLOCAR_TOKEN_DO_BOTFATHER",
     "chat_id": "COLOCAR_ID_DO_GRUPO",
@@ -20,6 +20,7 @@
   },
   "detection": {
     "threshold": 0.75,
+    "require_approach_before_conceal": true,
     "dwell_seconds": 1.2,
     "window_seconds": 3.0,
     "cooldown_seconds": 30.0
