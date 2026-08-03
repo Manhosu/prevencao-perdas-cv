@@ -471,6 +471,20 @@ class MainWindow(QWidget):
         self._sens_label.setWordWrap(True)
         layout.addWidget(self._sens_label)
 
+        # Modo sequência: o gate mais rígido. Só alerta se a mão foi à
+        # prateleira ANTES de esconder (a cadeia do furto), em vez de reagir ao
+        # gesto solto. Mata o falso "virei de costas e disparou". Vale a pena só
+        # com a câmera numa altura que enxergue a prateleira — por isso é opção,
+        # não padrão.
+        self._sequencia_check = QCheckBox(
+            "Modo sequência: só alerta se pegou algo na prateleira antes (menos falso)")
+        self._sequencia_check.setChecked(self.cfg.detection.require_approach_before_conceal)
+        self._sequencia_check.setToolTip(
+            "Exige a sequência pegar produto → esconder. Reduz muito o alarme "
+            "falso (virar de costas, passar na área), mas precisa de câmera na "
+            "altura que veja a prateleira. Feche e abra o programa para aplicar.")
+        layout.addWidget(self._sequencia_check)
+
         self._salvar_sens_btn = QPushButton("Salvar sensibilidade")
         self._salvar_sens_btn.clicked.connect(self._salvar_sensibilidade)
         layout.addWidget(self._salvar_sens_btn)
@@ -542,9 +556,11 @@ class MainWindow(QWidget):
         analyzer lê o limiar na criação, igual ao cadastro de câmera)."""
         thr = slider_para_threshold(self._sens_slider.value())
         self.cfg.detection.threshold = thr
+        self.cfg.detection.require_approach_before_conceal = self._sequencia_check.isChecked()
         self.cfg.save(self.config_path)
+        seq = " · modo sequência" if self._sequencia_check.isChecked() else ""
         self._sens_label.setText(
-            f"{sensibilidade_rotulo(thr)}  (limiar {thr:.2f}) — salvo. "
+            f"{sensibilidade_rotulo(thr)}  (limiar {thr:.2f}){seq} — salvo. "
             "Feche e abra o programa para aplicar."
         )
 

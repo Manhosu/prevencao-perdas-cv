@@ -451,6 +451,22 @@ def test_slider_sensibilidade_salva_threshold(tmp_path, db):
     assert recarregado.detection.threshold == slider_para_threshold(0)  # 0.90
 
 
+def test_checkbox_modo_sequencia_salva_no_config(tmp_path, db):
+    """O checkbox 'Modo sequência' grava require_approach_before_conceal no
+    config junto com a sensibilidade — é como o revendedor liga o gate rígido
+    (só alerta se pegou produto antes) sem editar arquivo."""
+    from src.config.settings import AppConfig
+
+    win = _janela(tmp_path, db)
+    assert win.cfg.detection.require_approach_before_conceal is False  # padrao: off
+
+    win._sequencia_check.setChecked(True)
+    win._salvar_sensibilidade()
+
+    recarregado = AppConfig.load(tmp_path / "config.json")
+    assert recarregado.detection.require_approach_before_conceal is True
+
+
 def test_checkbox_modo_silencioso_salva_enabled(tmp_path, db):
     """Modo teste (bug de campo 23/jul): desmarcar 'Enviar alertas no Telegram'
     grava enabled=False no config — é a ponte para a loja parar de assustar a
