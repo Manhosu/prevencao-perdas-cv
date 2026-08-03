@@ -451,6 +451,40 @@ def test_slider_sensibilidade_salva_threshold(tmp_path, db):
     assert recarregado.detection.threshold == slider_para_threshold(0)  # 0.90
 
 
+def test_salvar_nome_da_loja(tmp_path, db):
+    """Pedido de campo: o revendedor instala em várias lojas com o mesmo build
+    e o alerta vinha sempre 'Mercado Piloto'. Editar o nome na aba Config grava
+    store.name no config, e o display_name (usado na legenda) reflete."""
+    win = _janela(tmp_path, db)
+    win._loja_edit.setText("Mercado do Zé")
+    win._salvar_loja()
+
+    recarregado = AppConfig.load(tmp_path / "config.json")
+    assert recarregado.store.name == "Mercado do Zé"
+    assert "Mercado do Zé" in recarregado.store.display_name
+
+
+def test_remover_camera(tmp_path, db, monkeypatch):
+    """Pedido de campo: cadastrou câmera errada, precisa apagar sem editar
+    arquivo. Remover tira a câmera do config e da lista."""
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    cfg = _cfg(cameras=[
+        CameraConfig(name="Certa", rtsp_url="rtsp://a", zones=[]),
+        CameraConfig(name="Errada", rtsp_url="rtsp://b", zones=[]),
+    ])
+    win = _janela(tmp_path, db, cfg=cfg)
+    # seleciona a câmera errada (linha 1) e remove
+    win._camera_list.setCurrentRow(1)
+    win._remover_camera()
+
+    recarregado = AppConfig.load(tmp_path / "config.json")
+    nomes = [c.name for c in recarregado.cameras]
+    assert nomes == ["Certa"]
+    assert win._camera_list.count() == 1
+
+
 def test_checkbox_modo_sequencia_salva_no_config(tmp_path, db):
     """O checkbox 'Modo sequência' grava require_approach_before_conceal no
     config junto com a sensibilidade — é como o revendedor liga o gate rígido

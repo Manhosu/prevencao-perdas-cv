@@ -205,8 +205,11 @@ class MainWindow(QWidget):
         self._testar_btn.clicked.connect(self._testar_conexao)
         self._adicionar_btn = QPushButton("Adicionar câmera")
         self._adicionar_btn.clicked.connect(self._adicionar_camera)
+        self._remover_btn = QPushButton("Remover câmera")
+        self._remover_btn.clicked.connect(self._remover_camera)
         botoes.addWidget(self._testar_btn)
         botoes.addWidget(self._adicionar_btn)
+        botoes.addWidget(self._remover_btn)
         left.addLayout(botoes)
 
         self._conexao_status = QLabel("")
@@ -362,6 +365,28 @@ class MainWindow(QWidget):
             "a monitorar esta câmera.",
         )
 
+    def _remover_camera(self) -> None:
+        """Remove a câmera selecionada do config (pedido de campo: revendedor
+        que cadastra uma errada precisa apagar sem editar arquivo)."""
+        item = self._camera_list.currentItem()
+        if item is None:
+            QMessageBox.warning(self, "Remover câmera",
+                                "Selecione uma câmera na lista primeiro.")
+            return
+        nome = item.text()
+        resp = QMessageBox.question(
+            self, "Remover câmera",
+            f"Remover a câmera \"{nome}\"? Isso apaga o cadastro dela "
+            "(inclusive as zonas marcadas).")
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+        self.cfg.cameras = [c for c in self.cfg.cameras if c.name != nome]
+        self.cfg.save(self.config_path)
+        self._camera_list.takeItem(self._camera_list.row(item))
+        QMessageBox.information(
+            self, "Remover câmera",
+            "Câmera removida e salva. Feche e abra o programa para aplicar.")
+
     # --- aba 3: Eventos --------------------------------------------------------
 
     def _build_events_tab(self) -> QWidget:
@@ -422,11 +447,23 @@ class MainWindow(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
 
+        # Nome da loja: aparece no topo de cada alerta. O revendedor instala em
+        # várias lojas com o MESMO build — sem isto, todas mandavam "Mercado
+        # Piloto". Editável aqui, sem mexer em arquivo.
         form = QFormLayout()
+        self._loja_edit = QLineEdit(self.cfg.store.name)
+        self._loja_edit.setToolTip(
+            "Nome que aparece no topo de cada alerta no Telegram. "
+            "Troque para cada loja nova que você instalar.")
+        form.addRow("Nome da loja (no alerta)", self._loja_edit)
         self._token_edit = QLineEdit(self.cfg.telegram.bot_token)
         self._token_edit.setEchoMode(QLineEdit.EchoMode.Password)
         form.addRow("Token do bot Telegram", self._token_edit)
         layout.addLayout(form)
+
+        self._salvar_loja_btn = QPushButton("Salvar nome da loja")
+        self._salvar_loja_btn.clicked.connect(self._salvar_loja)
+        layout.addWidget(self._salvar_loja_btn)
 
         self._buscar_grupo_btn = QPushButton("Procurar meu grupo")
         self._buscar_grupo_btn.clicked.connect(self._buscar_grupos)
@@ -537,6 +574,20 @@ class MainWindow(QWidget):
         grupo = self._grupos_encontrados[idx]
         self.cfg.telegram.chat_id = grupo["chat_id"]
         self._grupo_status.setText(f"Grupo selecionado: {grupo['nome']}")
+
+    def _salvar_loja(self) -> None:
+        """Grava o nome da loja. O mesmo objeto cfg é usado pelo envio de
+        alerta (main._on_result lê cfg.store.display_name), então o nome novo
+        já vale no próximo alerta — sem reiniciar."""
+        nome = self._loja_edit.text().strip()
+        if not nome:
+            QMessageBox.warning(self, "Nome da loja", "Informe o nome da loja.")
+            return
+        self.cfg.store.name = nome
+        self.cfg.save(self.config_path)
+        self._grupo_status.setText(
+            f"Nome da loja salvo: {self.cfg.store.display_name}. "
+            "Já vale no próximo alerta.")
 
     def _salvar_telegram(self) -> None:
         self.cfg.telegram.bot_token = self._token_edit.text().strip()
