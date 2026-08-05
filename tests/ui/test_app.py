@@ -485,6 +485,25 @@ def test_remover_camera(tmp_path, db, monkeypatch):
     assert win._camera_list.count() == 1
 
 
+def test_toggle_camera_do_caixa_grava_modo_panico(tmp_path, db):
+    """O checkbox 'Câmera do caixa' liga o modo pânico (assalto+arma) naquela
+    câmera via override, sem editar arquivo — o revendedor marca e pronto.
+    Desmarcar volta pro modo furto."""
+    cfg = _cfg(cameras=[CameraConfig(name="Caixa", rtsp_url="rtsp://a", zones=[])])
+    win = _janela(tmp_path, db, cfg=cfg)
+    win._camera_list.setCurrentRow(0)          # seleciona a câmera
+
+    win._caixa_check.setChecked(True)          # marca → modo caixa
+    recarregado = AppConfig.load(tmp_path / "config.json")
+    cam = recarregado.cameras[0]
+    assert cam.overrides.get("mode") == "panico"
+    assert cam.effective_detection(recarregado.detection).mode == "panico"
+
+    win._caixa_check.setChecked(False)         # desmarca → volta furto
+    recarregado2 = AppConfig.load(tmp_path / "config.json")
+    assert recarregado2.cameras[0].overrides.get("mode") is None
+
+
 def test_checkbox_modo_sequencia_salva_no_config(tmp_path, db):
     """O checkbox 'Modo sequência' grava require_approach_before_conceal no
     config junto com a sensibilidade — é como o revendedor liga o gate rígido

@@ -169,6 +169,17 @@ class MainWindow(QWidget):
         self._camera_list.currentTextChanged.connect(self._on_camera_selected)
         left.addWidget(self._camera_list)
 
+        # Toggle por câmera: caixa (assalto/pânico + arma) x prateleira (furto).
+        # Evita editar config.json em cada uma das 10 lojas do revendedor — é
+        # só marcar a câmera do caixa. Reflete/edita o override "mode" da
+        # câmera SELECIONADA. Vale ao reiniciar (o analyzer é criado na abertura).
+        self._caixa_check = QCheckBox("Câmera do caixa (detecção de assalto + arma)")
+        self._caixa_check.setToolTip(
+            "Marque para ESTA câmera detectar mãos levantadas (assalto) e varrer "
+            "arma, em vez de furto. Feche e abra o programa para aplicar.")
+        self._caixa_check.toggled.connect(self._on_caixa_toggled)
+        left.addWidget(self._caixa_check)
+
         form = QFormLayout()
         self._nome_edit = QLineEdit()
         self._marca_combo = QComboBox()
@@ -257,8 +268,32 @@ class MainWindow(QWidget):
         # indevido.
         with QSignalBlocker(self._zone_editor):
             self._zone_editor.set_zones(cam.zones)
+        # reflete o modo desta câmera sem disparar o save (sinal bloqueado)
+        with QSignalBlocker(self._caixa_check):
+            self._caixa_check.setChecked(cam.overrides.get("mode") == "panico")
         self._zonas_alteradas = False
         self._zonas_status.setText("")
+
+    def _on_caixa_toggled(self, marcado: bool) -> None:
+        """Liga/desliga o modo caixa (pânico) na câmera selecionada, gravando
+        o override "mode". Sem câmera selecionada, reverte sem salvar."""
+        item = self._camera_list.currentItem()
+        cam = self._camera_by_name(item.text()) if item is not None else None
+        if cam is None:
+            with QSignalBlocker(self._caixa_check):
+                self._caixa_check.setChecked(False)
+            QMessageBox.warning(self, "Modo da câmera",
+                                "Selecione uma câmera na lista primeiro.")
+            return
+        if marcado:
+            cam.overrides["mode"] = "panico"
+        else:
+            cam.overrides.pop("mode", None)
+        self.cfg.save(self.config_path)
+        estado = "CAIXA (assalto + arma)" if marcado else "prateleira (furto)"
+        self._zonas_status.setText(
+            f"Câmera \"{cam.name}\" agora é {estado}. "
+            "Feche e abra o programa para aplicar.")
 
     def _on_zonas_changed(self) -> None:
         self._zonas_alteradas = True
