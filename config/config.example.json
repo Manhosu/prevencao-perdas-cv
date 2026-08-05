@@ -20,6 +20,8 @@
   },
   "detection": {
     "threshold": 0.75,
+    "zone_weights": { "waist": 0.0, "back_waist": 0.0, "torso": 0.95, "bag": 1.0 },
+    "weapon": { "enabled": true, "model": "models/weapon.pt", "threshold": 0.40 },
     "dwell_seconds": 1.2,
     "window_seconds": 3.0,
     "cooldown_seconds": 30.0

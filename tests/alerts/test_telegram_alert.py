@@ -139,3 +139,16 @@ def test_caption_is_portuguese_and_has_the_facts():
     # a zona aparece em portugues, nao o codigo interno
     assert "waist" not in cap
     assert any(p in cap.lower() for p in ("cintura", "bolso"))
+
+
+def test_caption_panico_com_e_sem_arma():
+    """A legenda de panico ganha a linha de ARMA so quando arma=True — a
+    deteccao de arma (gated no panico) enriquece o alerta, sem mudar o gatilho."""
+    s = TelegramSender(_cfg(), session=FakeSession())
+    ts = datetime(2026, 8, 5, 21, 0, 0)
+    sem = s.caption_panico("Mercado Julie", "Caixa", ts)
+    com = s.caption_panico("Mercado Julie", "Caixa", ts, arma=True)
+    assert "PÂNICO" in sem and "assalto" in sem.lower()
+    assert "ARMA" not in sem            # sem arma: nao inventa a linha
+    assert "🔫" in com and "ARMA" in com  # com arma: aparece a linha
+    assert "Mercado Julie" in com and "Caixa" in com

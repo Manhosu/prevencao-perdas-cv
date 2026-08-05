@@ -168,6 +168,16 @@ class PanicConfig(_Strict):
     track_lost_seconds: float = Field(default=2.0, gt=0)
 
 
+class WeaponConfig(_Strict):
+    """Detecção de arma DENTRO do alerta de pânico (gated). Só roda quando o
+    gesto de mãos acima dispara — nunca no dia a dia — então não gera alarme
+    falso com celular. OFF por padrão; o modelo carrega só quando ligado.
+    Ver src/detection/weapon.py."""
+    enabled: bool = False
+    model: str = "models/weapon.pt"
+    threshold: float = Field(default=0.40, ge=0.0, le=1.0)
+
+
 class DetectionConfig(_Strict):
     # "ocultacao" (padrão): detecta gesto de esconder produto (câmera de sala).
     # "panico": modo caixa — mãos acima da cabeça por 2s dispara alerta de
@@ -175,6 +185,7 @@ class DetectionConfig(_Strict):
     # furto de teto se mostrou inviável; ver memória de 29/jul).
     mode: str = "ocultacao"
     panic: PanicConfig = Field(default_factory=PanicConfig)
+    weapon: WeaponConfig = Field(default_factory=WeaponConfig)
     threshold: float = Field(default=0.60, ge=0.0, le=1.0)
     dwell_seconds: float = Field(default=1.2, gt=0)
     window_seconds: float = Field(default=3.0, gt=0)

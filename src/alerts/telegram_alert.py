@@ -96,13 +96,19 @@ class TelegramSender:
                 f"👀 {gesto}")
 
     def caption_panico(self, store_name: str, camera_name: str,
-                       ts_local: datetime) -> str:
+                       ts_local: datetime, arma: bool = False) -> str:
         """Legenda do alerta de PÂNICO (modo caixa): mãos acima da cabeça =
-        possível assalto. Tom de urgência, distinto do alerta de ocultação."""
+        possível assalto. Tom de urgência, distinto do alerta de ocultação.
+
+        `arma=True` acrescenta a linha de arma — só vem True quando o detector
+        de arma (gated no pânico) viu uma arma óbvia no quadro; o gesto é o
+        gatilho, a arma é contexto extra."""
+        linha_arma = "\n🔫 Possível ARMA no local" if arma else ""
         return (f"🚨 ALERTA DE PÂNICO — mãos levantadas no caixa\n"
                 f"🏪 {store_name}\n"
                 f"📷 {camera_name}\n"
-                f"🕒 {ts_local.strftime('%d/%m/%Y %H:%M:%S')}\n"
+                f"🕒 {ts_local.strftime('%d/%m/%Y %H:%M:%S')}"
+                f"{linha_arma}\n"
                 f"🆘 Possível assalto — verifique agora")
 
     def _post(self, metodo: str, campo: str, caminho: Path, caption: str) -> bool:

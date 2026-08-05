@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import time
@@ -90,6 +91,22 @@ def main() -> int:
     # fica completo) — só o envio ao Telegram é que respeita o intervalo.
     alert_gate = CameraAlertGate(cfg.telegram.min_seconds_between_alerts)
 
+    # Detector de arma: SÓ é consultado dentro do alerta de pânico (gated), e
+    # só existe se ligado no config. Nunca roda no dia a dia → sem alarme falso
+    # de celular. Carrega o modelo preguiçosamente na primeira consulta.
+    weapon_detector = None
+    if cfg.detection.weapon.enabled:
+        from src.detection.weapon import WeaponDetector
+        from src.config.paths import resource_dir
+        wcfg = cfg.detection.weapon
+        modelo = wcfg.model
+        # caminho relativo → resolve no bundle (mesma regra dos modelos de pose)
+        if not os.path.isabs(modelo):
+            modelo = str(resource_dir() / modelo)
+        weapon_detector = WeaponDetector(modelo, wcfg.threshold)
+        log.info("detecção de arma no pânico LIGADA (modelo %s, limiar %.2f)",
+                 modelo, wcfg.threshold)
+
     def _on_result(result, frame):
         if result.had_person:
             log.info(
@@ -111,8 +128,11 @@ def main() -> int:
                          alert_gate.suprimidos(result.camera_name))
                 continue
             if panico:
+                arma = (weapon_detector.has_weapon(frame.image)
+                        if weapon_detector is not None else False)
                 caption = sender.caption_panico(cfg.store.display_name,
-                                                result.camera_name, res.ts_local)
+                                                result.camera_name, res.ts_local,
+                                                arma=arma)
             else:
                 caption = sender.caption_for(cfg.store.display_name, result.camera_name,
                                              res.ts_local, ev.zone)
