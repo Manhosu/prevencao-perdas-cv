@@ -188,3 +188,80 @@ def test_sem_exemplo_no_bundle_nao_explode(congelado):
     destino = default_config_path()
     with pytest.raises(FileNotFoundError):
         ensure_config(destino)
+
+
+# --- migração ao ATUALIZAR de versão -------------------------------------
+#
+# Bug de campo (05/ago/2026): a detecção de arma foi entregue ligada no
+# `config.example.json`, mas quem ATUALIZOU por cima de uma instalação
+# anterior continuou com o config antigo — sem o bloco `detection.weapon`.
+# Como o default do código é `enabled: False`, o recurso nunca chegou a
+# carregar, e o cliente testou arma contra um detector que não existia.
+# A migração abaixo é o que impede que toda feature nova nasça desligada
+# em quem já tem o sistema instalado.
+
+def test_atualizacao_acrescenta_bloco_novo_da_versao(congelado):
+    bundle, _ = congelado
+    _exemplo(bundle)
+    destino = default_config_path()
+    ensure_config(destino)  # loja instalou a versão ANTIGA
+
+    # a versão nova do app passa a trazer um bloco que aquele config não tem
+    _exemplo(bundle, detection={"threshold": 0.6, "dwell_seconds": 1.2,
+                                "window_seconds": 3.0, "cooldown_seconds": 30.0,
+                                "weapon": {"enabled": True}})
+
+    criou = ensure_config(destino)
+
+    assert criou is False  # não é primeira execução: só migrou
+    dados = json.loads(destino.read_text(encoding="utf-8"))
+    assert dados["detection"]["weapon"]["enabled"] is True
+    AppConfig.load(destino)  # e o resultado continua sendo um config válido
+
+
+def test_atualizacao_preserva_o_que_a_loja_configurou(congelado):
+    """A trava crítica da migração: acrescentar o que falta NUNCA pode
+    encostar no token, nas câmeras ou na calibração daquela loja."""
+    bundle, _ = congelado
+    _exemplo(bundle)
+    destino = default_config_path()
+    ensure_config(destino)
+
+    dados = json.loads(destino.read_text(encoding="utf-8"))
+    dados["telegram"]["bot_token"] = "TOKEN-DA-LOJA"
+    dados["detection"]["threshold"] = 0.85  # calibração feita em campo
+    dados["cameras"] = [{"name": "Caixa", "rtsp_url": "rtsp://x/9"}]
+    destino.write_text(json.dumps(dados), encoding="utf-8")
+
+    _exemplo(bundle, detection={"threshold": 0.6, "weapon": {"enabled": True}})
+    ensure_config(destino)
+
+    novo = json.loads(destino.read_text(encoding="utf-8"))
+    assert novo["telegram"]["bot_token"] == "TOKEN-DA-LOJA"
+    assert novo["detection"]["threshold"] == 0.85
+    assert [c["name"] for c in novo["cameras"]] == ["Caixa"]
+    assert novo["detection"]["weapon"]["enabled"] is True  # e o novo entrou
+
+
+def test_migracao_nao_explode_com_config_corrompido(congelado):
+    """Config quebrado à mão segue para o AppConfig.load, que explica o erro
+    em português — não pode morrer aqui, sem mensagem."""
+    bundle, _ = congelado
+    _exemplo(bundle)
+    destino = default_config_path()
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text("{ isso nao e json", encoding="utf-8")
+
+    assert ensure_config(destino) is False
+    assert destino.read_text(encoding="utf-8") == "{ isso nao e json"
+
+
+def test_bundle_sem_exemplo_nao_derruba_loja_ja_configurada(congelado):
+    """Erro de build não pode impedir de abrir uma loja que já tem config."""
+    bundle, _ = congelado
+    _exemplo(bundle)
+    destino = default_config_path()
+    ensure_config(destino)
+    (bundle / "config" / "config.example.json").unlink()
+
+    assert ensure_config(destino) is False  # não levanta
