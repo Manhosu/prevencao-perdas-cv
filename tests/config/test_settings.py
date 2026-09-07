@@ -1,9 +1,24 @@
 import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from src.config.settings import AppConfig, ConfigError, DetectionConfig
+
+
+def test_config_de_instalacao_nasce_em_modo_panico():
+    """`config.example.json` é o que o instalador semeia numa loja nova.
+
+    O produto vendido é o do caixa (mãos acima da cabeça). O detector de furto
+    é o que produz a enxurrada de falso alerta em câmera de teto — 500 numa
+    tarde, medido em campo. Enquanto o padrão foi "ocultacao", toda instalação
+    nova saía caçando furto até alguém marcar câmera por câmera na tela, e
+    quem esquecesse entregava ao lojista justamente o alarme falso que derruba
+    a confiança no sistema. Instalação nova nasce no modo que se vende."""
+    exemplo = Path(__file__).resolve().parents[2] / "config" / "config.example.json"
+    cfg = AppConfig.load(exemplo)
+    assert cfg.detection.mode == "panico"
 
 
 def _minimal(tmp_path, **overrides):

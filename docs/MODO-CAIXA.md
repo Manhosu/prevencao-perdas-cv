@@ -13,7 +13,15 @@ Alerta de **assalto** por gesto: quando alguém levanta **as duas mãos acima da
 
 ## Como ativar (por câmera do caixa)
 
-No `config.json` da instalação (`%LOCALAPPDATA%\PrevencaoPerdas\config.json`), na seção `detection`:
+> **Instalação nova já nasce assim.** O `config.example.json` que o instalador
+> semeia vem com `"mode": "panico"`, então toda câmera cadastrada entra no modo
+> gesto sem ninguém configurar nada. Isso existe para o caso do instalador
+> esquecer de marcar a câmera na tela: o padrão errado entregava o detector de
+> furto ligado, e com ele a enxurrada de falso alerta. Para colocar UMA câmera
+> em modo furto, desmarque "Câmera do caixa" naquela câmera (a tela grava
+> `"mode": "ocultacao"` no override dela).
+
+Para editar à mão, no `config.json` da instalação (`%LOCALAPPDATA%\PrevencaoPerdas\config.json`), na seção `detection`:
 
 ```json
 "detection": {
@@ -25,7 +33,8 @@ No `config.json` da instalação (`%LOCALAPPDATA%\PrevencaoPerdas\config.json`),
 }
 ```
 
-- `mode: "panico"` liga o modo caixa (o padrão é `"ocultacao"`).
+- `mode: "panico"` liga o modo caixa (é o padrão de uma instalação nova; use
+  `"ocultacao"` para voltar ao detector de furto).
 - `hold_seconds`: segundos com as mãos acima para disparar (2 é o recomendado).
 - `cooldown_seconds`: silêncio após um disparo, pra não repetir o mesmo alerta.
 

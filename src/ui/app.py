@@ -268,9 +268,13 @@ class MainWindow(QWidget):
         # indevido.
         with QSignalBlocker(self._zone_editor):
             self._zone_editor.set_zones(cam.zones)
-        # reflete o modo desta câmera sem disparar o save (sinal bloqueado)
+        # reflete o modo desta câmera sem disparar o save (sinal bloqueado).
+        # Sem override vale o modo global — que numa instalação nova é
+        # "panico" —, então o checkbox tem que olhar o modo EFETIVO, não só a
+        # presença do override.
         with QSignalBlocker(self._caixa_check):
-            self._caixa_check.setChecked(cam.overrides.get("mode") == "panico")
+            modo = cam.overrides.get("mode", self.cfg.detection.mode)
+            self._caixa_check.setChecked(modo == "panico")
         self._zonas_alteradas = False
         self._zonas_status.setText("")
 
@@ -285,10 +289,13 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, "Modo da câmera",
                                 "Selecione uma câmera na lista primeiro.")
             return
-        if marcado:
-            cam.overrides["mode"] = "panico"
-        else:
-            cam.overrides.pop("mode", None)
+        # Grava o modo EXPLÍCITO nos dois sentidos. Antes, desmarcar só
+        # removia o override e a câmera caía no modo global. Isso deixou de
+        # significar "furto" quando a instalação nova passou a nascer em
+        # pânico: desmarcar não mudava nada, e o botão virava decorativo numa
+        # das direções. Com override explícito ele funciona nos dois, seja
+        # qual for o padrão do arquivo.
+        cam.overrides["mode"] = "panico" if marcado else "ocultacao"
         self.cfg.save(self.config_path)
         estado = "CAIXA (assalto + arma)" if marcado else "prateleira (furto)"
         self._zonas_status.setText(

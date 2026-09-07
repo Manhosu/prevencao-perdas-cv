@@ -19,6 +19,7 @@
     "detect_bags": true
   },
   "detection": {
+    "mode": "panico",
     "threshold": 0.75,
     "zone_weights": { "waist": 0.0, "back_waist": 0.0, "torso": 0.95, "bag": 1.0 },
     "weapon": { "enabled": true, "model": "models/weapon.pt", "threshold": 0.40 },

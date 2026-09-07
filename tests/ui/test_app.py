@@ -501,7 +501,28 @@ def test_toggle_camera_do_caixa_grava_modo_panico(tmp_path, db):
 
     win._caixa_check.setChecked(False)         # desmarca → volta furto
     recarregado2 = AppConfig.load(tmp_path / "config.json")
-    assert recarregado2.cameras[0].overrides.get("mode") is None
+    cam2 = recarregado2.cameras[0]
+    assert cam2.overrides.get("mode") == "ocultacao"
+    assert cam2.effective_detection(recarregado2.detection).mode == "ocultacao"
+
+
+def test_desmarcar_caixa_vale_mesmo_com_padrao_panico(tmp_path, db):
+    """Numa instalação nova o padrão do arquivo é "panico". Antes, desmarcar
+    apenas APAGAVA o override, e a câmera caía no padrão global — ou seja,
+    continuava em pânico e o botão não fazia nada nessa direção. O modo
+    gravado precisa ser explícito nos dois sentidos."""
+    cfg = _cfg(cameras=[CameraConfig(name="Corredor", rtsp_url="rtsp://a", zones=[])])
+    cfg.detection.mode = "panico"              # como nasce uma instalação nova
+    win = _janela(tmp_path, db, cfg=cfg)
+    win._camera_list.setCurrentRow(0)
+
+    # sem override, o checkbox reflete o modo EFETIVO (o global) — vem marcado
+    assert win._caixa_check.isChecked() is True
+
+    win._caixa_check.setChecked(False)         # quero furto NESTA câmera
+    recarregado = AppConfig.load(tmp_path / "config.json")
+    cam = recarregado.cameras[0]
+    assert cam.effective_detection(recarregado.detection).mode == "ocultacao"
 
 
 def test_checkbox_modo_sequencia_salva_no_config(tmp_path, db):
