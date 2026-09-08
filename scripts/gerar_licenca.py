@@ -70,7 +70,7 @@ def cmd_chaves(args) -> int:
 
 
 def cmd_emitir(args) -> int:
-    privada = Path(args.privada)
+    privada = Path(args.privada) if args.privada else caminho_padrao_chave()
     if not privada.exists():
         print(f"ERRO: chave privada não encontrada em {privada}")
         return 1
@@ -102,7 +102,87 @@ def cmd_emitir(args) -> int:
     return 0
 
 
+def caminho_padrao_chave() -> Path:
+    """Onde procurar a chave privada quando ninguém passou `--privada`.
+
+    Empacotado, é a pasta do próprio `.exe`: o revendedor deixa a chave ao
+    lado do programa e não digita caminho nenhum. Em desenvolvimento, a raiz
+    do projeto."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "chave_privada.pem"
+    return RAIZ / "chave_privada.pem"
+
+
+def _perguntar(rotulo: str, obrigatorio: bool = True) -> str:
+    while True:
+        valor = input(rotulo).strip()
+        if valor or not obrigatorio:
+            return valor
+        print("  (precisa preencher)")
+
+
+def modo_interativo() -> int:
+    """O que roda quando o revendedor dá dois cliques no programa.
+
+    Existe porque a alternativa era ele abrir terminal e digitar comando com
+    parâmetros — o que, na prática, significaria me ligar a cada instalação."""
+    print("=" * 58)
+    print("  GERADOR DE LICENÇA — Prevenção de Perdas")
+    print("=" * 58)
+    print()
+
+    chave = caminho_padrao_chave()
+    if not chave.exists():
+        print(f"ERRO: não encontrei a chave privada em:\n  {chave}\n")
+        print("Coloque o arquivo 'chave_privada.pem' na mesma pasta deste")
+        print("programa e abra de novo.")
+        input("\nPressione Enter para sair.")
+        return 1
+
+    print("Peça ao cliente o código que aparece na tela dele.\n")
+    maquina = _perguntar("Código da máquina (XXXX-XXXX-XXXX-XXXX): ").upper()
+    if len(maquina.split("-")) != 4:
+        print("\nERRO: o código tem 4 blocos separados por hífen.")
+        input("\nPressione Enter para sair.")
+        return 1
+    cliente = _perguntar("Nome da loja/cliente: ")
+    validade = _perguntar(
+        "Validade AAAA-MM-DD (Enter = sem prazo): ", obrigatorio=False) or None
+
+    licenca = Licenca(maquina=maquina, cliente=cliente,
+                      emitida_em=date.today().isoformat(), expira_em=validade)
+    try:
+        token = emitir(licenca, chave.read_bytes())
+    except Exception as e:
+        print(f"\nERRO ao gerar a licença: {e}")
+        input("\nPressione Enter para sair.")
+        return 1
+
+    seguro = "".join(c if c.isalnum() else "-" for c in cliente)[:40]
+    destino = chave.parent / f"licenca-{seguro}.txt"
+    try:
+        destino.write_text(token, encoding="utf-8")
+        gravado = f"\nTambém salvo em: {destino}"
+    except OSError:
+        gravado = ""
+
+    print("\n" + "=" * 58)
+    print(f"  Licença de: {cliente}")
+    print(f"  Máquina:    {maquina}")
+    print(f"  Validade:   {validade or 'sem prazo'}")
+    print("=" * 58)
+    print("\nMANDE O CÓDIGO ABAIXO PARA QUEM ESTÁ INSTALANDO:\n")
+    print(token)
+    print(gravado)
+    input("\nPressione Enter para sair.")
+    return 0
+
+
 def main(argv=None) -> int:
+    # Sem argumentos = dois cliques no programa. Vai para o modo guiado.
+    if not (argv if argv is not None else sys.argv[1:]):
+        return modo_interativo()
+
     ap = argparse.ArgumentParser(description="Licenciamento — Prevenção de Perdas")
     sub = ap.add_subparsers(dest="comando", required=True)
 
@@ -119,7 +199,8 @@ def main(argv=None) -> int:
     p_emitir.add_argument("--cliente", required=True, help="nome da loja/cliente")
     p_emitir.add_argument("--validade", default=None,
                           help="vencimento AAAA-MM-DD (padrão: sem prazo)")
-    p_emitir.add_argument("--privada", required=True, help="caminho da chave privada")
+    p_emitir.add_argument("--privada", default=None,
+                          help="caminho da chave privada (padrão: ao lado do programa)")
     p_emitir.add_argument("--saida", default=None, help="grava o código num arquivo")
     p_emitir.set_defaults(func=cmd_emitir)
 

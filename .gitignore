@@ -33,3 +33,6 @@ YK2*
 # chave privada de licenciamento — NUNCA versionar
 *.pem
 chave_privada*
+
+# gerador de licenca compilado (ferramenta do revendedor, nunca do cliente)
+/dist_gerador/
