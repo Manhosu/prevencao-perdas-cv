@@ -11,6 +11,7 @@ openvino>=2025.0,<2027      # brief: 2024.* — sem wheel para cp313
 onnxruntime>=1.20
 
 # Aplicacao / infra
+cryptography>=42          # licenciamento: assinatura Ed25519 (src/licensing)
 pydantic>=2,<3
 requests>=2.32              # brief: 2.32.* — instalado 2.34.2
 PySide6>=6.8

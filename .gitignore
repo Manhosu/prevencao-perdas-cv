@@ -29,3 +29,7 @@ relatorio-capacidade.txt
 /scratchpad_arma/
 /scratchpad/
 YK2*
+
+# chave privada de licenciamento — NUNCA versionar
+*.pem
+chave_privada*

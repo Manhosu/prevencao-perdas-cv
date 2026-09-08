@@ -39,6 +39,11 @@ HIDDEN_IMPORTS = [
     "openvino",
     "cv2",
     "PySide6",
+    # Licenciamento: a verificação de assinatura vive numa extensão nativa
+    # (cryptography.hazmat.bindings._rust). Faltando ela, o app abriria e
+    # recusaria TODA licença — inclusive as boas — o que travaria uma loja
+    # pagante sem motivo aparente.
+    "cryptography",
 ]
 
 # Pacotes cujos binários precisam ser copiados INTEIROS para o bundle.

@@ -21,6 +21,9 @@ from src.config.settings import AppConfig, ConfigError
 from src.evidence.recorder import EvidenceRecorder
 from src.evidence.retention import RetentionJob
 from src.inference.engine import InferenceEngine
+from src.licensing.activation import Estado as EstadoLicenca
+from src.licensing.activation import avaliar as avaliar_licenca
+from src.licensing.fingerprint import codigo_da_maquina
 from src.pipeline import Pipeline
 from src.storage.db import Database
 from src.watchdog.monitor import Watchdog
@@ -62,6 +65,33 @@ def main() -> int:
     except (ConfigError, OSError) as e:
         log.error("%s", e)
         return 2
+
+    # --- portão de licença ---------------------------------------------------
+    # Antes de qualquer coisa cara (carregar modelo, abrir câmera): uma máquina
+    # não liberada não roda. A licença é assinada e amarrada a ESTE computador,
+    # então copiar a pasta instalada para outro PC não funciona.
+    #
+    # Com --ui a tela de ativação resolve na hora (mostra o código da máquina e
+    # recebe a licença). Headless o processo sai com código 3 explicando o que
+    # fazer — nunca em silêncio, que foi o bug de campo de julho (abria e
+    # fechava sozinho, sem dizer por quê).
+    licenca_dir = data_dir()
+    ativacao = avaliar_licenca(licenca_dir)
+    if not ativacao.pode_rodar:
+        log.error("%s", ativacao.mensagem)
+        log.error("Código desta máquina: %s", codigo_da_maquina())
+        if not args.ui:
+            return 3
+        from PySide6.QtWidgets import QApplication
+
+        from src.ui.activation_dialog import pedir_ativacao
+
+        QApplication.instance() or QApplication(sys.argv)
+        if not pedir_ativacao(licenca_dir, ativacao.mensagem):
+            return 3
+        ativacao = avaliar_licenca(licenca_dir)
+    if ativacao.estado is EstadoLicenca.TOLERANCIA:
+        log.warning("%s", ativacao.mensagem)
 
     pipeline = Pipeline(cfg, InferenceEngine(cfg.inference))
 
