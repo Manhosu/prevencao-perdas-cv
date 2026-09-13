@@ -106,6 +106,11 @@ def montar_comando_pyinstaller(raiz: Path) -> list[str]:
         "--name",
         APP_NAME,
         "--onedir",
+        # Sem janela de console. Com console, o lojista via uma janela preta
+        # com linhas de log (inclusive "ERROR") antes do programa, e qualquer
+        # falha real sumia junto com ela. O log vai para arquivo e os avisos
+        # viram caixa de mensagem (ver `configurar_log` em src/main.py).
+        "--windowed",
         "--noconfirm",
     ]
 

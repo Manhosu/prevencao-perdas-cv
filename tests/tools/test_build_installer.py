@@ -36,6 +36,15 @@ def test_comando_usa_modo_onedir_e_nome_do_app():
     assert APP_NAME == "PrevencaoPerdas"
 
 
+def test_app_da_loja_abre_sem_janela_de_console():
+    """Relato de campo (set/2026): "dá erro e fecha sozinho" na primeira
+    abertura. Com console, o lojista via log com ERROR numa janela preta e
+    fechava; falha real sumia junto. Sem console o log vai para arquivo e o
+    motivo aparece em caixa de mensagem."""
+    comando = montar_comando_pyinstaller(RAIZ)
+    assert "--windowed" in comando
+
+
 def test_entrypoint_e_src_main_com_ui():
     comando = montar_comando_pyinstaller(RAIZ)
     entrypoint = str(Path("src") / "main.py")

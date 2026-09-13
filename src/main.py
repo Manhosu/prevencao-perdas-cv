@@ -43,6 +43,105 @@ def carregar_config(path) -> AppConfig:
     return AppConfig.load(path)
 
 
+# --- log e avisos visíveis ---------------------------------------------------
+#
+# O app instalado roda SEM janela de console (build `--windowed`). Relato de
+# campo (set/2026): na primeira abertura, sem licença, "dá erro e fecha
+# sozinho". Com console, o que aparecia primeiro era uma janela preta com
+# linhas ERROR — que o lojista lê como defeito —, e qualquer falha de verdade
+# sumia junto com o console, sem deixar rastro.
+#
+# Sem console, o log vai para um arquivo e todo motivo de encerramento com
+# janela vira caixa de mensagem em português. O programa não some calado: foi
+# exatamente o bug de julho, e ele não pode voltar por outro caminho.
+
+_LOG_PRONTO = False
+
+
+def arquivo_de_log():
+    """Onde o suporte encontra o registro do que aconteceu."""
+    return data_dir() / "logs" / "app.log"
+
+
+def configurar_log() -> None:
+    """Console no desenvolvimento; arquivo no app instalado. Idempotente."""
+    global _LOG_PRONTO
+    if _LOG_PRONTO:
+        return
+    from logging.handlers import RotatingFileHandler
+
+    from src.config.paths import is_frozen
+
+    formato = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
+        "%Y-%m-%d %H:%M:%S",
+    )
+    raiz = logging.getLogger()
+    raiz.setLevel(logging.INFO)
+
+    if is_frozen():
+        destino = arquivo_de_log()
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        arquivo = RotatingFileHandler(destino, maxBytes=2_000_000,
+                                      backupCount=3, encoding="utf-8")
+        arquivo.setFormatter(formato)
+        raiz.addHandler(arquivo)
+        # Empacotado sem console, sys.stdout e sys.stderr são None. O
+        # Ultralytics e o tqdm escrevem direto neles e derrubariam o processo
+        # com AttributeError na primeira linha impressa. Vão para um arquivo à
+        # parte, recriado a cada abertura: tamanho limitado, e sem disputar o
+        # mesmo arquivo com a rotação do log principal.
+        if sys.stdout is None or sys.stderr is None:
+            saida = open(destino.parent / "saida.log", "w",
+                         encoding="utf-8", buffering=1)
+            if sys.stdout is None:
+                sys.stdout = saida
+            if sys.stderr is None:
+                sys.stderr = saida
+    else:
+        console = logging.StreamHandler()
+        console.setFormatter(formato)
+        raiz.addHandler(console)
+    _LOG_PRONTO = True
+
+
+def _avisar(titulo: str, texto: str) -> None:
+    """Caixa de mensagem na frente de tudo. Só é usada com `--ui`.
+
+    Sem console, é o único jeito de o lojista saber POR QUE o programa não
+    abriu, em vez de vê-lo sumir."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    app = QApplication.instance() or QApplication(sys.argv)  # noqa: F841 mantém viva
+    caixa = QMessageBox()
+    caixa.setIcon(QMessageBox.Icon.Warning)
+    caixa.setWindowTitle(titulo)
+    caixa.setText(texto)
+    caixa.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+    caixa.exec()
+
+
+def executar() -> int:
+    """Ponto de entrada do executável. Última linha de defesa: nenhuma falha
+    inesperada pode fechar o programa sem dizer por quê."""
+    try:
+        return main()
+    except Exception as e:  # noqa: BLE001 — capturar tudo é o objetivo aqui
+        logging.getLogger("main").exception("falha inesperada ao abrir o sistema")
+        if "--ui" in sys.argv:
+            try:
+                _avisar("O sistema encontrou um erro",
+                        "O sistema não conseguiu abrir.\n\n"
+                        f"Detalhe: {e}\n\n"
+                        "Mande para o suporte o arquivo de registro:\n"
+                        f"{arquivo_de_log()}")
+            except Exception:
+                logging.getLogger("main").exception(
+                    "não foi possível nem mostrar a mensagem de erro")
+        return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Prevenção de Perdas — núcleo")
     ap.add_argument("--config", default=None,
@@ -52,11 +151,7 @@ def main() -> int:
                     help="abre a janela (Plano 4) em vez de rodar headless")
     args = ap.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    configurar_log()
     log = logging.getLogger("main")
 
     config_path = args.config or default_config_path()
@@ -64,6 +159,10 @@ def main() -> int:
         cfg = carregar_config(config_path)
     except (ConfigError, OSError) as e:
         log.error("%s", e)
+        if args.ui:
+            _avisar("Configuração com problema",
+                    "O sistema não conseguiu ler a configuração desta loja.\n\n"
+                    f"{e}\n\nArquivo: {config_path}")
         return 2
 
     # --- portão de licença ---------------------------------------------------
@@ -71,27 +170,44 @@ def main() -> int:
     # não liberada não roda. A licença é assinada e amarrada a ESTE computador,
     # então copiar a pasta instalada para outro PC não funciona.
     #
-    # Com --ui a tela de ativação resolve na hora (mostra o código da máquina e
-    # recebe a licença). Headless o processo sai com código 3 explicando o que
-    # fazer — nunca em silêncio, que foi o bug de campo de julho (abria e
-    # fechava sozinho, sem dizer por quê).
+    # Com --ui a tela de liberação resolve na hora (mostra o código da máquina
+    # e recebe a licença). Headless o processo sai com código 3 explicando o
+    # que fazer. Nos dois casos, nunca em silêncio.
     licenca_dir = data_dir()
     ativacao = avaliar_licenca(licenca_dir)
     if not ativacao.pode_rodar:
-        log.error("%s", ativacao.mensagem)
-        log.error("Código desta máquina: %s", codigo_da_maquina())
+        codigo = codigo_da_maquina()
         if not args.ui:
+            log.error("%s", ativacao.mensagem)
+            log.error("Código desta máquina: %s", codigo)
             return 3
+        # Com janela, máquina ainda não liberada é o estado NORMAL da primeira
+        # abertura, não um erro — e "ERROR" era justamente o que o lojista lia
+        # como defeito. Aqui é INFO; o que ele vê é a tela de liberação.
+        log.info("máquina não liberada (código %s): abrindo a tela de liberação",
+                 codigo)
         from PySide6.QtWidgets import QApplication
 
         from src.ui.activation_dialog import pedir_ativacao
 
-        QApplication.instance() or QApplication(sys.argv)
+        qapp = QApplication.instance() or QApplication(sys.argv)  # noqa: F841
         if not pedir_ativacao(licenca_dir, ativacao.mensagem):
+            log.info("tela de liberação fechada sem licença; encerrando")
+            _avisar("Sistema ainda não liberado",
+                    "O sistema só funciona depois de liberado.\n\n"
+                    f"Código deste computador:   {codigo}\n\n"
+                    "Envie esse código para o seu fornecedor. Quando receber a "
+                    "licença, abra o programa de novo e cole na tela.")
             return 3
         ativacao = avaliar_licenca(licenca_dir)
     if ativacao.estado is EstadoLicenca.TOLERANCIA:
         log.warning("%s", ativacao.mensagem)
+        if args.ui:
+            # A tolerância só serve se o lojista SOUBER dela: sem console, um
+            # aviso só no log significaria descobrir no dia do bloqueio.
+            _avisar("Licença precisa ser renovada",
+                    f"{ativacao.mensagem}\n\n"
+                    f"Código atual deste computador:   {codigo_da_maquina()}")
 
     pipeline = Pipeline(cfg, InferenceEngine(cfg.inference))
 
@@ -246,4 +362,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(executar())

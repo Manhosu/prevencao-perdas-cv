@@ -115,5 +115,12 @@ def pedir_ativacao(pasta_dados: Path, mensagem: str = "") -> bool:
     abriria e fecharia sozinho, que foi exatamente o bug de campo de julho."""
     dialogo = ActivationDialog(pasta_dados, mensagem)
     dialogo.setWindowModality(Qt.WindowModality.ApplicationModal)
+    # É a primeira e única janela da primeira abertura. Se ela abrir atrás de
+    # outra coisa, o lojista não vê o que fazer e fecha o programa achando que
+    # travou. Tem que vir na frente.
+    dialogo.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+    dialogo.show()
+    dialogo.raise_()
+    dialogo.activateWindow()
     dialogo.exec()
     return dialogo.aceito
