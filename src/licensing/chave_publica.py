@@ -6,6 +6,6 @@ repositório. Trocar esta chave invalida todas as licenças já emitidas."""
 
 CHAVE_PUBLICA_PEM = """\
 -----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAVB7BGMocg78GtalFQHtY0wOI6nKCAYllf0eKsY0v2rk=
+MCowBQYDK2VwAyEANR4ttcJN4I+PCoEhCS8oic1WX+TUce5nXA0QqAQwS7w=
 -----END PUBLIC KEY-----
 """

@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts import gerar_licenca  # noqa: E402
-from src.licensing import fingerprint  # noqa: E402
+from src.licensing import fingerprint, keyfile  # noqa: E402
 from src.licensing.license import LicencaInvalida, verificar  # noqa: E402
 
 
@@ -29,6 +29,27 @@ def chaves(tmp_path, monkeypatch):
 def _respostas(monkeypatch, *valores):
     """Simula o revendedor digitando; o último Enter fecha o programa."""
     fila = list(valores) + [""]
+    monkeypatch.setattr("builtins.input", lambda *_: fila.pop(0))
+
+
+@pytest.fixture
+def chave_cifrada(tmp_path, monkeypatch):
+    """A forma REAL de entrega: só o .enc ao lado do programa, aberto por senha.
+    Não há .pem em claro no disco do revendedor."""
+    privada, publica = gerar_licenca.gerar_par_de_chaves()
+    enc = tmp_path / "chave_privada.enc"
+    enc.write_bytes(keyfile.cifrar(privada, "PP-ZRJE-TWW8-8T92"))
+    # caminho_padrao_chave aponta para o .pem (que não existe); o gerador cai
+    # no .enc ao lado, como faz empacotado.
+    monkeypatch.setattr(gerar_licenca, "caminho_padrao_chave",
+                        lambda: tmp_path / "chave_privada.pem")
+    return enc, publica
+
+
+def _com_senha(monkeypatch, senha, *respostas):
+    """A senha é lida por input() junto com as demais respostas. Entrega a
+    senha na posição certa: código, cliente, validade, SENHA, Enter final."""
+    fila = list(respostas) + [senha, ""]
     monkeypatch.setattr("builtins.input", lambda *_: fila.pop(0))
 
 
@@ -114,3 +135,50 @@ def test_verificar_recusa_lixo(chaves):
     _, publica = chaves
     with pytest.raises(LicencaInvalida):
         verificar("nao e licenca", publica)
+
+
+# --- chave cifrada por senha (a forma de entrega) ---------------------------
+
+def test_gerador_emite_com_chave_cifrada_e_senha_certa(
+        chave_cifrada, monkeypatch, capsys):
+    _, publica = chave_cifrada
+    maquina = fingerprint.codigo_da_maquina({"guid": "g", "volume": "V1"})
+    # ordem das perguntas: código, cliente, validade(Enter), SENHA, Enter final
+    _com_senha(monkeypatch, "PP-ZRJE-TWW8-8T92", maquina, "Mercado Julie", "")
+
+    assert gerar_licenca.modo_interativo() == 0
+
+    token = next(l.strip() for l in capsys.readouterr().out.splitlines()
+                 if l.startswith("PP1."))
+    assert verificar(token, publica).maquina == maquina
+
+
+def test_gerador_com_senha_errada_nao_emite(chave_cifrada, monkeypatch, capsys):
+    """O ponto que torna seguro pôr o .enc num link: senha errada não gera
+    licença nenhuma. Três tentativas erradas, depois o Enter de sair."""
+    maquina = fingerprint.codigo_da_maquina({"guid": "g", "volume": "V1"})
+    fila = [maquina, "Mercado Julie", "", "errada1", "errada2", "errada3", ""]
+    monkeypatch.setattr("builtins.input", lambda *_: fila.pop(0))
+
+    assert gerar_licenca.modo_interativo() == 1
+
+    saida = capsys.readouterr().out
+    assert not any(l.strip().startswith("PP1.") for l in saida.splitlines())
+    assert "Senha incorreta" in saida
+
+
+def test_proteger_gera_enc_que_so_a_senha_abre(tmp_path):
+    privada, _ = gerar_licenca.gerar_par_de_chaves()
+    pem = tmp_path / "chave_privada.pem"
+    pem.write_bytes(privada)
+
+    class Args:
+        privada = str(pem)
+        senha = "PP-ABCD-EFGH-JKLM"
+        saida = str(tmp_path / "chave_privada.enc")
+
+    assert gerar_licenca.cmd_proteger(Args()) == 0
+    dados = Path(Args.saida).read_bytes()
+    assert keyfile.parece_cifrada(dados)
+    assert keyfile.decifrar(dados, "PP-ABCD-EFGH-JKLM") == privada
+    assert b"PRIVATE KEY" not in dados  # a chave em claro não vaza no arquivo

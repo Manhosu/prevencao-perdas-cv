@@ -31,9 +31,62 @@ RAIZ = Path(__file__).resolve().parent.parent
 # `python -m scripts.gerar_licenca`, o que é detalhe de programador.
 sys.path.insert(0, str(RAIZ))
 
+from src.licensing import keyfile  # noqa: E402
 from src.licensing.license import Licenca, emitir, gerar_par_de_chaves  # noqa: E402
 
 MODULO_PUBLICO = RAIZ / "src" / "licensing" / "chave_publica.py"
+
+
+def caminho_padrao_chave() -> Path:
+    """Onde procurar a chave quando ninguém passou `--privada`.
+
+    Empacotado, é a pasta do próprio `.exe`. Em desenvolvimento, a raiz do
+    projeto."""
+    base = Path(sys.executable).parent if getattr(sys, "frozen", False) else RAIZ
+    return base / "chave_privada.pem"
+
+
+def _chave_privada_bytes(caminho: Path | None, pedir_senha=None) -> bytes:
+    """Devolve os bytes do PEM, decifrando com senha se o arquivo for `.enc`.
+
+    Aceita as duas formas:
+      * `chave_privada.pem` — chave em claro (uso no desenvolvimento);
+      * `chave_privada.enc` — chave cifrada por senha (entrega ao revendedor,
+        pode viajar em link porque sem a senha é inútil).
+
+    Se `caminho` foi dado, usa exatamente esse arquivo. Senão procura o `.pem`
+    e, na falta dele, o `.enc` ao lado do programa.
+
+    `pedir_senha` é injetável para teste; por padrão lê do console. Usamos
+    input() (senha visível), não getpass: no console do executável empacotado
+    o getpass fica travado à espera de um terminal que ele não controla, e o
+    programa congelaria na cara do revendedor. A senha aparecer na tela é
+    aceitável — é a máquina dele, emitindo licença sozinho."""
+    if pedir_senha is None:
+        pedir_senha = lambda: input("Senha da chave: ").strip()  # noqa: E731
+
+    if caminho is not None:
+        alvo = Path(caminho)
+    else:
+        alvo = caminho_padrao_chave()
+        if not alvo.exists():
+            enc = alvo.with_suffix(".enc")
+            if enc.exists():
+                alvo = enc
+    if not alvo.exists():
+        raise FileNotFoundError(alvo)
+
+    dados = alvo.read_bytes()
+    if not keyfile.parece_cifrada(dados):
+        return dados
+    for tentativa in range(3):
+        senha = pedir_senha()
+        try:
+            return keyfile.decifrar(dados, senha)
+        except keyfile.SenhaIncorreta as e:
+            faltam = 2 - tentativa
+            print(f"  {e}" + (f" Tente de novo ({faltam} restante(s))." if faltam else ""))
+    raise keyfile.SenhaIncorreta("Senha incorreta nas três tentativas.")
 
 _CABECALHO = '''"""Chave pública de licenciamento — gerada por scripts/gerar_licenca.py.
 
@@ -70,14 +123,18 @@ def cmd_chaves(args) -> int:
 
 
 def cmd_emitir(args) -> int:
-    privada = Path(args.privada) if args.privada else caminho_padrao_chave()
-    if not privada.exists():
-        print(f"ERRO: chave privada não encontrada em {privada}")
-        return 1
     maquina = args.maquina.strip().upper()
     if len(maquina.split("-")) != 4:
         print("ERRO: o código da máquina tem o formato XXXX-XXXX-YYYY-YYYY "
               "(copie exatamente o que aparece na tela do cliente).")
+        return 1
+    try:
+        pem = _chave_privada_bytes(args.privada)
+    except FileNotFoundError as e:
+        print(f"ERRO: chave privada não encontrada em {e}")
+        return 1
+    except keyfile.SenhaIncorreta as e:
+        print(f"ERRO: {e}")
         return 1
 
     licenca = Licenca(
@@ -86,7 +143,7 @@ def cmd_emitir(args) -> int:
         emitida_em=date.today().isoformat(),
         expira_em=args.validade,
     )
-    token = emitir(licenca, privada.read_bytes())
+    token = emitir(licenca, pem)
     print()
     print(f"Licença de: {licenca.cliente}")
     print(f"Máquina:    {licenca.maquina}")
@@ -100,17 +157,6 @@ def cmd_emitir(args) -> int:
         Path(args.saida).write_text(token, encoding="utf-8")
         print(f"(também gravado em {args.saida})")
     return 0
-
-
-def caminho_padrao_chave() -> Path:
-    """Onde procurar a chave privada quando ninguém passou `--privada`.
-
-    Empacotado, é a pasta do próprio `.exe`: o revendedor deixa a chave ao
-    lado do programa e não digita caminho nenhum. Em desenvolvimento, a raiz
-    do projeto."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent / "chave_privada.pem"
-    return RAIZ / "chave_privada.pem"
 
 
 def _perguntar(rotulo: str, obrigatorio: bool = True) -> str:
@@ -131,11 +177,13 @@ def modo_interativo() -> int:
     print("=" * 58)
     print()
 
-    chave = caminho_padrao_chave()
-    if not chave.exists():
-        print(f"ERRO: não encontrei a chave privada em:\n  {chave}\n")
-        print("Coloque o arquivo 'chave_privada.pem' na mesma pasta deste")
-        print("programa e abra de novo.")
+    pasta = caminho_padrao_chave().parent
+    if not (caminho_padrao_chave().exists()
+            or caminho_padrao_chave().with_suffix(".enc").exists()):
+        print("ERRO: não encontrei a chave nesta pasta:\n"
+              f"  {pasta}\n")
+        print("Coloque o arquivo da chave (chave_privada.pem ou chave_privada.enc)")
+        print("na mesma pasta deste programa e abra de novo.")
         input("\nPressione Enter para sair.")
         return 1
 
@@ -149,17 +197,30 @@ def modo_interativo() -> int:
     validade = _perguntar(
         "Validade AAAA-MM-DD (Enter = sem prazo): ", obrigatorio=False) or None
 
+    # Chave cifrada pede a senha aqui dentro (uma vez por emissão): a chave
+    # decifrada nunca é gravada em disco, só usada em memória.
+    try:
+        pem = _chave_privada_bytes(None)
+    except keyfile.SenhaIncorreta as e:
+        print(f"\n{e}")
+        input("\nPressione Enter para sair.")
+        return 1
+    except FileNotFoundError:
+        print("\nERRO: não encontrei o arquivo da chave nesta pasta.")
+        input("\nPressione Enter para sair.")
+        return 1
+
     licenca = Licenca(maquina=maquina, cliente=cliente,
                       emitida_em=date.today().isoformat(), expira_em=validade)
     try:
-        token = emitir(licenca, chave.read_bytes())
+        token = emitir(licenca, pem)
     except Exception as e:
         print(f"\nERRO ao gerar a licença: {e}")
         input("\nPressione Enter para sair.")
         return 1
 
     seguro = "".join(c if c.isalnum() else "-" for c in cliente)[:40]
-    destino = chave.parent / f"licenca-{seguro}.txt"
+    destino = pasta / f"licenca-{seguro}.txt"
     try:
         destino.write_text(token, encoding="utf-8")
         gravado = f"\nTambém salvo em: {destino}"
@@ -175,6 +236,23 @@ def modo_interativo() -> int:
     print(token)
     print(gravado)
     input("\nPressione Enter para sair.")
+    return 0
+
+
+def cmd_proteger(args) -> int:
+    """Cifra a chave_privada.pem com uma senha, gerando o .enc que é entregue
+    ao revendedor. O .enc pode ir em link: sem a senha, não abre."""
+    origem = Path(args.privada)
+    if not origem.exists():
+        print(f"ERRO: não encontrei {origem}")
+        return 1
+    destino = Path(args.saida) if args.saida else origem.with_suffix(".enc")
+    destino.write_bytes(keyfile.cifrar(origem.read_bytes(), args.senha))
+    # confere o ciclo antes de confiar no arquivo entregue
+    assert keyfile.decifrar(destino.read_bytes(), args.senha) == origem.read_bytes()
+    print(f"Chave cifrada gravada em: {destino}")
+    print("Entregue este .enc junto com o gerador; mande a SENHA por um canal "
+          "separado (texto do chat).")
     return 0
 
 
@@ -203,6 +281,14 @@ def main(argv=None) -> int:
                           help="caminho da chave privada (padrão: ao lado do programa)")
     p_emitir.add_argument("--saida", default=None, help="grava o código num arquivo")
     p_emitir.set_defaults(func=cmd_emitir)
+
+    p_prot = sub.add_parser(
+        "proteger", help="cifra a chave privada com uma senha (gera o .enc de entrega)")
+    p_prot.add_argument("--privada", required=True, help="chave_privada.pem a cifrar")
+    p_prot.add_argument("--senha", required=True, help="senha que abrirá a chave")
+    p_prot.add_argument("--saida", default=None,
+                        help="arquivo .enc de saída (padrão: ao lado do .pem)")
+    p_prot.set_defaults(func=cmd_proteger)
 
     args = ap.parse_args(argv)
     return args.func(args)
