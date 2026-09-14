@@ -166,6 +166,10 @@ class PanicConfig(_Strict):
     cooldown_seconds: float = Field(default=30.0, gt=0)
     wrist_conf_min: float = Field(default=0.30, ge=0.0, le=1.0)
     track_lost_seconds: float = Field(default=2.0, gt=0)
+    # Referência de "altura da cabeça" quando a pessoa está de costas (nariz
+    # oculto): fração da largura dos ombros acima da linha deles. Ver
+    # src/detection/panic.py::_linha_da_cabeca.
+    head_above_shoulder: float = Field(default=0.5, ge=0.0, le=2.0)
 
 
 class WeaponConfig(_Strict):
