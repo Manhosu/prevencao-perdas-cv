@@ -62,11 +62,65 @@ def test_camera_override_replaces_only_given_keys(tmp_path):
     assert cfg.detection.threshold == 0.60
 
 
-def test_rejects_unknown_override_key(tmp_path):
+def test_tolerates_unknown_override_key(tmp_path):
+    """Campo desconhecido no override (de versão anterior) é IGNORADO, não
+    derruba. Antes travava a loja: um bloco `weapon` antigo no config.json de
+    um cliente impediu o app de abrir (bug de campo 15/set)."""
     cfg = AppConfig.load(_minimal(tmp_path))
-    cfg.cameras[0].overrides = {"nao_existe": 1}
-    with pytest.raises(ConfigError, match="nao_existe"):
+    cfg.cameras[0].overrides = {"threshold": 0.8, "nao_existe": 1}
+    eff = cfg.cameras[0].effective_detection(cfg.detection)
+    assert eff.threshold == 0.8  # o que é válido continua valendo
+
+
+def test_override_com_valor_invalido_ainda_falha(tmp_path):
+    """Tolerar campo DESCONHECIDO não afrouxa a validação de VALOR: threshold
+    fora da faixa continua sendo erro real, que precisa aparecer."""
+    cfg = AppConfig.load(_minimal(tmp_path))
+    cfg.cameras[0].overrides = {"threshold": 5.0}  # fora de [0,1]
+    with pytest.raises(ConfigError):
         cfg.cameras[0].effective_detection(cfg.detection)
+
+
+def test_campos_desconhecidos_no_config_nao_travam_o_app(tmp_path):
+    """Config gravado por uma versão anterior (com um bloco `weapon` de campos
+    que a versão atual não conhece mais) tem que ABRIR, ignorando os campos —
+    não morrer com 'campo desconhecido' na cara do lojista."""
+    p = _minimal(tmp_path, detection={
+        "mode": "panico", "threshold": 0.75,
+        "weapon": {"enabled": True, "model": "models/weapon.pt", "threshold": 0.4,
+                   "crop_margin": 0.1, "scan_seconds": 2.0, "max_frames": 5,
+                   "hand_radius_px": 40},
+        "cooldown_allows_new_episode": True,
+    })
+
+    cfg = AppConfig.load(p)  # antes: ConfigError; agora: carrega
+
+    assert cfg.detection.mode == "panico"
+    assert cfg.detection.weapon.enabled is True
+
+
+def test_save_limpa_campos_desconhecidos(tmp_path):
+    """Depois de carregar tolerando, o próximo save regrava sem os campos
+    mortos — o config se auto-limpa."""
+    p = _minimal(tmp_path, detection={
+        "threshold": 0.6, "cooldown_allows_new_episode": True,
+        "weapon": {"enabled": False, "crop_margin": 0.1},
+    })
+
+    cfg = AppConfig.load(p)
+    cfg.save(p)
+
+    salvo = json.loads(p.read_text(encoding="utf-8"))
+    assert "cooldown_allows_new_episode" not in salvo["detection"]
+    assert "crop_margin" not in salvo["detection"]["weapon"]
+
+
+def test_erro_de_tipo_no_config_continua_fatal(tmp_path):
+    """Tolerância é só para campo DESCONHECIDO. Valor de tipo errado num campo
+    conhecido segue sendo erro que o instalador precisa ver."""
+    p = _minimal(tmp_path, detection={"threshold": "muito alto"})
+    with pytest.raises(ConfigError):
+        AppConfig.load(p)
 
 
 def test_rejects_zone_outside_unit_square(tmp_path):
@@ -123,32 +177,38 @@ def test_detection_defaults_match_spec():
 # --- Correções pós-revisão da Task 2 ---
 
 
-def test_load_rejects_typo_in_camera_override(tmp_path):
-    """Um typo em overrides (ex.: 'threshhold' em vez de 'threshold') tem que
-    quebrar no instante do load(), não só quando effective_detection() for
-    chamado por outro módulo mais tarde."""
+def test_typo_in_override_is_tolerated_not_fatal(tmp_path):
+    """Tradeoff deliberado (bug de campo 15/set): um campo desconhecido em
+    override — seja typo ('threshhold'), seja resíduo de versão anterior — é
+    IGNORADO com aviso, não derruba o app. Um app que não abre numa loja é
+    pior do que um ajuste que silenciosamente não pega. O typo vira aviso no
+    log, e o load NÃO falha."""
     p = _minimal(tmp_path)
     data = json.loads(p.read_text(encoding="utf-8"))
     data["cameras"][0]["overrides"] = {"threshhold": 0.9}
     p.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(ConfigError):
-        AppConfig.load(p)
+
+    cfg = AppConfig.load(p)  # não levanta
+
+    eff = cfg.cameras[0].effective_detection(cfg.detection)
+    assert eff.threshold == 0.60  # o typo não pegou; ficou o padrão
 
 
 def test_error_message_is_translated_without_pydantic_jargon(tmp_path):
     """A mensagem que chega no ConfigError precisa ser legível por um técnico
     instalador: sem 'extra_forbidden', sem link para a documentação do
-    pydantic, e com o nome do campo problemático identificável."""
+    pydantic, e com o nome do campo problemático identificável. Disparada por
+    um VALOR inválido (que continua fatal), não por campo desconhecido."""
     p = _minimal(tmp_path)
     data = json.loads(p.read_text(encoding="utf-8"))
-    data["cameras"][0]["overrides"] = {"guards": {"min_persn_px": 60}}
+    data["detection"] = {"guards": {"min_person_px": -5}}  # gt=0 → erro real
     p.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ConfigError) as exc_info:
         AppConfig.load(p)
     msg = str(exc_info.value)
-    assert "extra_forbidden" not in msg
+    assert "greater_than" not in msg
     assert "errors.pydantic.dev" not in msg
-    assert "min_persn_px" in msg
+    assert "min_person_px" in msg
 
 
 def test_effective_detection_without_overrides_returns_independent_copy(tmp_path):

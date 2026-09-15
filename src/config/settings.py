@@ -3,6 +3,7 @@ calibrar o sistema é editar JSON, nunca código."""
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+log = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -291,12 +294,17 @@ class CameraConfig(_Strict):
             return base.model_copy(deep=True)
         merged = _deep_merge(base.model_dump(), self.overrides)
         try:
-            return DetectionConfig(**merged)
+            det, ignorados = _construir_tolerando_desconhecidos(DetectionConfig, merged)
         except ValidationError as e:
             raise ConfigError(
                 f"overrides inválidos na câmera '{self.name}':\n"
                 f"{format_validation_error(e)}"
             ) from e
+        if ignorados:
+            log.warning(
+                "overrides da câmera '%s' com campos desconhecidos ignorados "
+                "(de versão anterior): %s", self.name, ", ".join(ignorados))
+        return det
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:
@@ -307,6 +315,50 @@ def _deep_merge(base: dict, patch: dict) -> dict:
         else:
             out[k] = v
     return out
+
+
+def _remover_campo(data: dict, loc: tuple) -> bool:
+    """Remove o campo apontado por `loc` (ex.: ('detection','weapon','crop_margin'))
+    de `data`, entrando na estrutura. True se removeu."""
+    cur: Any = data
+    for step in loc[:-1]:
+        try:
+            cur = cur[step]
+        except (KeyError, IndexError, TypeError):
+            return False
+    ultimo = loc[-1]
+    if isinstance(cur, dict) and ultimo in cur:
+        del cur[ultimo]
+        return True
+    return False
+
+
+def _construir_tolerando_desconhecidos(model_cls, data: dict):
+    """Constrói o modelo pydantic. Se a ÚNICA coisa errada forem CAMPOS
+    DESCONHECIDOS (config gravado por uma versão anterior, ou por outra mão),
+    remove esses campos e tenta de novo — em vez de derrubar o app inteiro
+    numa loja por causa de uma chave sobrando.
+
+    Erro de verdade (tipo errado, valor fora da faixa, campo obrigatório
+    ausente) continua sendo fatal: esse é problema real que precisa ser visto.
+
+    Devolve (instância, lista_de_campos_ignorados). `data` é modificado no
+    lugar (os campos desconhecidos saem). Reergue ValidationError se sobrar
+    qualquer erro que não seja campo desconhecido."""
+    try:
+        return model_cls(**data), []
+    except ValidationError as e:
+        desconhecidos = [x for x in e.errors() if x.get("type") == "extra_forbidden"]
+        outros = [x for x in e.errors() if x.get("type") != "extra_forbidden"]
+        if not desconhecidos or outros:
+            raise
+        ignorados = []
+        for err in desconhecidos:
+            loc = err.get("loc", ())
+            if _remover_campo(data, loc):
+                ignorados.append(_format_error_loc(loc))
+        # se remover expôs um erro real (raro), o ValidationError sobe daqui
+        return model_cls(**data), ignorados
 
 
 class AppConfig(_Strict):
@@ -341,15 +393,21 @@ class AppConfig(_Strict):
         except json.JSONDecodeError as e:
             raise ConfigError(f"JSON inválido em {p}: {e}") from e
         try:
-            cfg = cls(**data)
+            cfg, ignorados = _construir_tolerando_desconhecidos(cls, data)
         except ValidationError as e:
             raise ConfigError(
                 f"configuração inválida em {p}:\n{format_validation_error(e)}"
             ) from e
-        # Um typo em `overrides` (ex.: "threshhold" em vez de "threshold")
-        # não pode sobreviver ao load: se não fosse validado aqui, o sistema
-        # só quebraria muito depois, quando algum módulo chamasse
-        # effective_detection() — e o técnico instalador já teria ido embora.
+        if ignorados:
+            # Campo de uma versão anterior do sistema (ex.: um bloco `weapon`
+            # antigo) não pode travar o app numa loja. Ele é ignorado, com
+            # aviso, e some do arquivo no próximo save (a UI regrava limpo).
+            # Erro de tipo/valor continua fatal — esse é problema de verdade.
+            log.warning("campos desconhecidos ignorados no config %s "
+                        "(de versão anterior): %s", p, ", ".join(ignorados))
+        # Validar os overrides já na carga: um erro real neles (tipo/valor)
+        # tem que aparecer agora, não muito depois quando algum módulo chamar
+        # effective_detection() — com o técnico instalador já longe.
         for camera in cfg.cameras:
             camera.effective_detection(cfg.detection)
         return cfg
