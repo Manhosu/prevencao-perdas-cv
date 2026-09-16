@@ -56,6 +56,38 @@ HIDDEN_IMPORTS = [
 # quebrava na primeira detecção real — com "Available frontends: jax pytorch".
 COLLECT_BINARIES = ["openvino"]
 
+# Plugins de dispositivo do OpenVINO que o sistema NÃO usa e que devem sair do
+# bundle. Bug de campo (16/set): numa máquina com placa Intel de driver antigo,
+# abrir o programa dava "Ponto de entrada não encontrado —
+# clCreateBufferWithProperties em openvino_intel_gpu_plugin.dll" e fechava. A
+# causa: o ultralytics chama `core.available_devices`, que ENUMERA os
+# dispositivos e, para isso, carrega o plugin de GPU; esse plugin depende de
+# uma função de OpenCL que o driver antigo da Intel não tem, e o carregamento
+# trava no próprio Windows (antes de chegar em Python — não dá para capturar).
+#
+# O sistema roda a inferência na CPU (device openvino → LATENCY na CPU). Sem o
+# plugin de GPU no bundle, `available_devices` devolve só ["CPU"], o ultralytics
+# escolhe CPU e nada tenta tocar a placa. A edição com GPU (projeto pago à
+# parte) terá o próprio build; no build da loja, GPU e NPU só trazem risco.
+PLUGINS_OPENVINO_A_REMOVER = (
+    "openvino_intel_gpu_plugin.dll",
+    "openvino_intel_npu_plugin.dll",
+)
+
+
+def remover_plugins_nao_usados(dist_root: Path) -> list[Path]:
+    """Apaga do bundle os plugins de dispositivo que o sistema não usa (GPU,
+    NPU). Devolve os arquivos removidos. É o que impede o crash de carregar um
+    plugin de GPU incompatível com o driver da loja."""
+    libs = dist_root / APP_NAME / "_internal" / "openvino" / "libs"
+    removidos: list[Path] = []
+    for nome in PLUGINS_OPENVINO_A_REMOVER:
+        alvo = libs / nome
+        if alvo.exists():
+            alvo.unlink()
+            removidos.append(alvo)
+    return removidos
+
 
 def _separador_add_data() -> str:
     """No Windows o --add-data usa ';' (o ':' colide com a letra de
@@ -139,6 +171,15 @@ def main() -> int:
         print("Falha ao gerar o executável com PyInstaller.")
         return resultado.returncode
     print(f"Executável gerado em dist/{APP_NAME}/")
+
+    # Tira os plugins de GPU/NPU ANTES de empacotar: numa máquina com placa
+    # Intel de driver antigo, o plugin de GPU trava o programa no boot.
+    removidos = remover_plugins_nao_usados(raiz / "dist")
+    if removidos:
+        print("Plugins de dispositivo não usados removidos do bundle "
+              "(evita crash de GPU incompatível na loja):")
+        for r in removidos:
+            print(f"  - {r.name}")
 
     iscc = shutil.which("ISCC") or shutil.which("iscc")
     setup_iss = raiz / "installer" / "setup.iss"

@@ -201,3 +201,42 @@ def test_coleta_os_binarios_do_openvino():
     comando = montar_comando_pyinstaller(Path("/proj"))
     assert "--collect-binaries" in comando
     assert "openvino" in comando[comando.index("--collect-binaries") + 1]
+
+
+# --- remoção do plugin de GPU (bug de campo 16/set) ----------------------
+#
+# Numa maquina com placa Intel de driver antigo, abrir o programa dava
+# "Ponto de entrada nao encontrado — clCreateBufferWithProperties em
+# openvino_intel_gpu_plugin.dll" e fechava. O ultralytics chama
+# core.available_devices, que carrega o plugin de GPU para enumerar; esse
+# plugin depende de uma funcao de OpenCL que o driver antigo nao tem, e o
+# carregamento trava no proprio Windows. O sistema roda na CPU e nao usa GPU,
+# entao o plugin sai do bundle.
+
+def test_remove_o_plugin_de_gpu_do_bundle(tmp_path):
+    from scripts.build_installer import (
+        APP_NAME,
+        remover_plugins_nao_usados,
+    )
+
+    libs = tmp_path / APP_NAME / "_internal" / "openvino" / "libs"
+    libs.mkdir(parents=True)
+    (libs / "openvino_intel_gpu_plugin.dll").write_bytes(b"x")
+    (libs / "openvino_intel_npu_plugin.dll").write_bytes(b"x")
+    (libs / "openvino_intel_cpu_plugin.dll").write_bytes(b"x")  # este FICA
+
+    removidos = remover_plugins_nao_usados(tmp_path)
+
+    nomes = {p.name for p in removidos}
+    assert "openvino_intel_gpu_plugin.dll" in nomes
+    assert not (libs / "openvino_intel_gpu_plugin.dll").exists()
+    # a CPU (que o sistema de fato usa) nunca pode ser removida
+    assert (libs / "openvino_intel_cpu_plugin.dll").exists()
+
+
+def test_remocao_de_plugin_e_idempotente(tmp_path):
+    """Rodar o build de novo (bundle já limpo) não pode quebrar."""
+    from scripts.build_installer import APP_NAME, remover_plugins_nao_usados
+
+    (tmp_path / APP_NAME / "_internal" / "openvino" / "libs").mkdir(parents=True)
+    assert remover_plugins_nao_usados(tmp_path) == []
