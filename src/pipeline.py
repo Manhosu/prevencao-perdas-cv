@@ -71,6 +71,7 @@ class Pipeline:
                         wrist_conf_min=pc.wrist_conf_min,
                         track_lost_seconds=pc.track_lost_seconds,
                         head_above_shoulder=pc.head_above_shoulder,
+                        detectar_de_costas=pc.detectar_de_costas,
                     )
                 )
             else:

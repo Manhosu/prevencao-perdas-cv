@@ -23,6 +23,8 @@ LWRIST = KP["left_wrist"]
 RWRIST = KP["right_wrist"]
 LSHOULDER = KP["left_shoulder"]
 RSHOULDER = KP["right_shoulder"]
+LHIP = KP["left_hip"]
+RHIP = KP["right_hip"]
 
 
 @dataclass
@@ -33,10 +35,17 @@ class PanicConfig:
     track_lost_seconds: float = 2.0  # descarta track sumido há mais que isto
     # De COSTAS o nariz não aparece, então a referência de "altura da cabeça"
     # vem dos ombros: a cabeça fica acima da linha dos ombros por esta fração
-    # da largura deles. 0.5 ≈ topo da cabeça — exige a mão claramente acima,
-    # não só na altura do ombro (senão pegar algo numa prateleira à altura do
-    # ombro viraria falso pânico). Só é usada quando o rosto está oculto.
+    # da largura deles. Só é usada quando `detectar_de_costas` está ligado.
     head_above_shoulder: float = 0.5
+    # Detecção com a pessoa DE COSTAS (rosto oculto → referência nos ombros).
+    # OFF por padrão, e isto é uma decisão de segurança: em câmera de TETO (o
+    # caso comum das lojas) "mãos acima da cabeça" não vira geometria
+    # confiável — uma pessoa curvada sobre o balcão projeta os punhos acima da
+    # linha dos ombros e dispara pânico FALSO (relato de campo 24/set, câmera
+    # de teto). Ligar só faz sentido numa câmera na ALTURA da pessoa, atrás do
+    # caixa, onde o corpo aparece em pé. Mesmo ligado, a guarda de "em pé"
+    # (ombros claramente acima dos quadris) evita o falso de teto.
+    detectar_de_costas: bool = False
 
 
 @dataclass
@@ -66,24 +75,38 @@ class PanicDetector:
     def _linha_da_cabeca(self, kp) -> float | None:
         """Altura (y na imagem) da cabeça, para comparar com os punhos.
 
-        De FRENTE, é o nariz (comportamento validado em campo, mantido igual).
-        De COSTAS o nariz some — e era isso que impedia o pânico de disparar
-        com o caixa de costas para a câmera. Nesse caso a referência vem dos
-        ombros: a cabeça está acima da linha dos ombros por uma fração da
-        largura deles. Sem nariz E sem os dois ombros confiáveis, não há como
-        estabelecer a referência → None (não dispara, lado seguro)."""
+        De FRENTE, é o nariz (comportamento validado em campo: 0 falso em 39
+        fotos). Este caminho é o padrão e não mudou.
+
+        De COSTAS o nariz some. Só então, E se `detectar_de_costas` estiver
+        ligado, a referência vem dos ombros. É opcional/OFF porque em câmera de
+        teto esse caminho gera falso positivo (pessoa curvada sobre o balcão).
+        Mesmo ligado, exige o corpo EM PÉ (ombros acima dos quadris) — o que
+        rejeita a câmera de teto, onde ombros e quadris caem quase no mesmo y."""
         c = self.cfg.wrist_conf_min
         nose = kp[NOSE]
         if nose[2] >= c:
             return float(nose[1])
+        if not self.cfg.detectar_de_costas:
+            return None
         ls, rs = kp[LSHOULDER], kp[RSHOULDER]
-        if ls[2] >= c and rs[2] >= c:
-            largura = abs(float(ls[0]) - float(rs[0]))
-            if largura < 1.0:  # ombros sobrepostos (perfil): referência não confiável
-                return None
-            ombro_y = (float(ls[1]) + float(rs[1])) / 2
-            return ombro_y - self.cfg.head_above_shoulder * largura
-        return None
+        if ls[2] < c or rs[2] < c:
+            return None
+        largura = abs(float(ls[0]) - float(rs[0]))
+        if largura < 1.0:  # ombros sobrepostos (perfil): referência não confiável
+            return None
+        # Guarda "em pé": a referência pelos ombros só é confiável se o tronco
+        # estiver vertical na imagem. Em câmera de teto o corpo é visto de cima
+        # e ombros/quadris caem quase no mesmo y — esta guarda barra esse caso,
+        # que é a fonte do falso positivo. Sem quadris confiáveis, não arrisca.
+        lh, rh = kp[LHIP], kp[RHIP]
+        if lh[2] < c or rh[2] < c:
+            return None
+        ombro_y = (float(ls[1]) + float(rs[1])) / 2
+        quadril_y = (float(lh[1]) + float(rh[1])) / 2
+        if quadril_y - ombro_y < 0.5 * largura:
+            return None  # tronco não está vertical (câmera de teto): não dispara
+        return ombro_y - self.cfg.head_above_shoulder * largura
 
     def _maos_acima(self, kp) -> bool:
         """True se AS DUAS mãos estão acima da cabeça, com confiança

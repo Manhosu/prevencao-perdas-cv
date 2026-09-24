@@ -173,6 +173,10 @@ class PanicConfig(_Strict):
     # oculto): fração da largura dos ombros acima da linha deles. Ver
     # src/detection/panic.py::_linha_da_cabeca.
     head_above_shoulder: float = Field(default=0.5, ge=0.0, le=2.0)
+    # Detecção de pânico com a pessoa DE COSTAS. OFF por padrão: só serve em
+    # câmera na altura da pessoa (atrás do caixa); em câmera de teto gera falso
+    # positivo. Ver src/detection/panic.py.
+    detectar_de_costas: bool = False
 
 
 class WeaponConfig(_Strict):

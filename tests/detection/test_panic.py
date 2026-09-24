@@ -111,13 +111,14 @@ def test_maos_com_baixa_confianca_nao_dispara():
 # referência passou a vir dos ombros quando o rosto está oculto.
 
 def _pose_de_costas(track_id, maos_acima, conf=0.9) -> PersonPose:
-    """Pessoa de costas: nariz e olhos SEM confiança (rosto oculto), ombros e
-    punhos visíveis. Ombros em y=130, largura 40px → cabeça estimada em
-    130 - 0.5*40 = 110. Mãos acima (y=60) ou baixas (y=200)."""
+    """Pessoa de costas EM PÉ, câmera na altura dela: rosto oculto (conf 0),
+    ombros em y=130 (largura 40 → cabeça estimada em 110), quadris em y=210
+    (tronco vertical, confirma "em pé"). Mãos acima (y=60) ou baixas (y=200)."""
     kp = np.zeros((17, 3), dtype=np.float32)
-    # nariz/olhos com conf 0 = de costas
     kp[KP["left_shoulder"]] = [90, 130, conf]
     kp[KP["right_shoulder"]] = [130, 130, conf]
+    kp[KP["left_hip"]] = [92, 210, conf]
+    kp[KP["right_hip"]] = [128, 210, conf]
     y = 60 if maos_acima else 200
     kp[KP["left_wrist"]] = [95, y, conf]
     kp[KP["right_wrist"]] = [125, y, conf]
@@ -125,9 +126,22 @@ def _pose_de_costas(track_id, maos_acima, conf=0.9) -> PersonPose:
     return PersonPose(person=p, keypoints=kp)
 
 
-def test_de_costas_maos_acima_dispara():
-    """O gesto de rendição de costas para a câmera precisa disparar."""
-    det = PanicDetector(_cfg())
+def test_de_costas_desligado_por_padrao_nao_dispara():
+    """Padrão de fábrica: detecção de costas OFF. Câmera de teto (o caso comum
+    das lojas) não pode dar falso pânico — por isso o padrão é o nariz."""
+    det = PanicDetector(_cfg())  # detectar_de_costas=False
+    evs = []
+    t = 0.0
+    while t < 3.0:
+        evs += det.update([_pose_de_costas(1, True)], round(t, 3))
+        t += 0.2
+    assert evs == []
+
+
+def test_de_costas_ligado_maos_acima_dispara():
+    """Com a opção ligada (câmera na altura, atrás do caixa), o gesto de
+    rendição de costas dispara."""
+    det = PanicDetector(_cfg(detectar_de_costas=True))
     evs = []
     t = 0.0
     while t < 3.0:
@@ -136,9 +150,8 @@ def test_de_costas_maos_acima_dispara():
     assert len(evs) == 1
 
 
-def test_de_costas_maos_abaixadas_nao_dispara():
-    """De costas, trabalhando normal (mãos na altura do balcão) não é pânico."""
-    det = PanicDetector(_cfg())
+def test_de_costas_ligado_maos_abaixadas_nao_dispara():
+    det = PanicDetector(_cfg(detectar_de_costas=True))
     evs = []
     t = 0.0
     while t < 5.0:
@@ -147,13 +160,40 @@ def test_de_costas_maos_abaixadas_nao_dispara():
     assert evs == []
 
 
-def test_de_costas_maos_so_na_altura_do_ombro_nao_dispara():
+def test_camera_de_teto_pessoa_curvada_nao_da_falso_panico():
+    """Bug de campo (24/set): câmera de TETO, pessoa curvada sobre o balcão,
+    ninguém com as mãos pra cima — e disparou pânico score 1.00. De cima, os
+    braços estendidos projetam os punhos acima da linha dos ombros. A guarda
+    de "em pé" (ombros ~ mesmo y dos quadris = visto de cima) tem que barrar,
+    ESTEJA a detecção de costas ligada ou não."""
+    kp = np.zeros((17, 3), np.float32)
+    kp[KP["left_shoulder"]] = [170, 200, 0.9]
+    kp[KP["right_shoulder"]] = [230, 200, 0.9]   # largura 60
+    kp[KP["left_hip"]] = [175, 208, 0.9]         # quadris quase no mesmo y (de cima)
+    kp[KP["right_hip"]] = [225, 208, 0.9]
+    kp[KP["left_wrist"]] = [175, 150, 0.9]       # braços à frente: y acima dos ombros
+    kp[KP["right_wrist"]] = [225, 150, 0.9]
+    p = PersonDetection(bbox=BBox(150, 140, 250, 320), conf=0.9, track_id=1)
+
+    for cfg in (_cfg(), _cfg(detectar_de_costas=True)):
+        det = PanicDetector(cfg)
+        evs = []
+        t = 0.0
+        while t < 5.0:
+            evs += det.update([PersonPose(person=p, keypoints=kp)], round(t, 3))
+            t += 0.2
+        assert evs == [], f"falso positivo de teto com cfg={cfg}"
+
+
+def test_de_costas_ligado_maos_so_na_altura_do_ombro_nao_dispara():
     """Alcançar algo na altura do ombro (de costas) não é rendição: as mãos
     precisam passar da CABEÇA, não só dos ombros."""
-    det = PanicDetector(_cfg())
+    det = PanicDetector(_cfg(detectar_de_costas=True))
     kp = np.zeros((17, 3), np.float32)
     kp[KP["left_shoulder"]] = [90, 130, 0.9]
     kp[KP["right_shoulder"]] = [130, 130, 0.9]
+    kp[KP["left_hip"]] = [92, 210, 0.9]
+    kp[KP["right_hip"]] = [128, 210, 0.9]
     kp[KP["left_wrist"]] = [95, 125, 0.9]   # logo acima do ombro, abaixo da cabeça (110)
     kp[KP["right_wrist"]] = [125, 125, 0.9]
     p = PersonDetection(bbox=BBox(80, 80, 140, 300), conf=0.9, track_id=1)
@@ -167,11 +207,13 @@ def test_de_costas_maos_so_na_altura_do_ombro_nao_dispara():
 
 def test_de_perfil_sem_referencia_nao_dispara():
     """De perfil os ombros se sobrepõem (largura ~0): sem referência confiável
-    da cabeça, o lado seguro é não disparar."""
-    det = PanicDetector(_cfg())
+    da cabeça, o lado seguro é não disparar — mesmo com a opção ligada."""
+    det = PanicDetector(_cfg(detectar_de_costas=True))
     kp = np.zeros((17, 3), np.float32)
     kp[KP["left_shoulder"]] = [100, 130, 0.9]
     kp[KP["right_shoulder"]] = [100, 130, 0.9]  # mesma coluna: perfil
+    kp[KP["left_hip"]] = [100, 210, 0.9]
+    kp[KP["right_hip"]] = [100, 210, 0.9]
     kp[KP["left_wrist"]] = [100, 40, 0.9]
     kp[KP["right_wrist"]] = [100, 40, 0.9]
     p = PersonDetection(bbox=BBox(80, 80, 120, 300), conf=0.9, track_id=1)
