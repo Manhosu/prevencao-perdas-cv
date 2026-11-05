@@ -42,10 +42,13 @@ class PanicConfig:
     # caso comum das lojas) "mãos acima da cabeça" não vira geometria
     # confiável — uma pessoa curvada sobre o balcão projeta os punhos acima da
     # linha dos ombros e dispara pânico FALSO (relato de campo 24/set, câmera
-    # de teto). Ligar só faz sentido numa câmera na ALTURA da pessoa, atrás do
-    # caixa, onde o corpo aparece em pé. Mesmo ligado, a guarda de "em pé"
-    # (ombros claramente acima dos quadris) evita o falso de teto.
-    detectar_de_costas: bool = False
+    # de teto). A maioria das câmeras de caixa fica ATRÁS da pessoa, na altura
+    # dela, e aí de costas é o caso PRINCIPAL — por isso o padrão é ON (relato
+    # de campo 05/nov: "de costas é primordial"). Duas guardas protegem o teto:
+    # a de "em pé" (ombros claramente acima dos quadris, rejeita o corpo visto
+    # de cima) e a margem de mãos-acima (rejeita mão no cabelo). Numa câmera de
+    # teto específica que ainda dê falso, desligar isto resolve aquela câmera.
+    detectar_de_costas: bool = True
     # Quão acima da cabeça as DUAS mãos precisam estar, em frações da largura
     # dos ombros, para contar como rendição. Relato de campo (04/nov): coçar a
     # cabeça / arrumar o cabelo disparava pânico, porque a mão no cabelo fica

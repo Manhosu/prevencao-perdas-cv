@@ -168,10 +168,23 @@ def _pose_de_costas(track_id, maos_acima, conf=0.9) -> PersonPose:
     return PersonPose(person=p, keypoints=kp)
 
 
-def test_de_costas_desligado_por_padrao_nao_dispara():
-    """Padrão de fábrica: detecção de costas OFF. Câmera de teto (o caso comum
-    das lojas) não pode dar falso pânico — por isso o padrão é o nariz."""
-    det = PanicDetector(_cfg())  # detectar_de_costas=False
+def test_de_costas_ligado_por_padrao_dispara():
+    """Padrão de fábrica: detecção de costas ON — a câmera do caixa costuma
+    ficar atrás da pessoa, na altura, e de costas é o caso principal (relato
+    05/nov: "de costas é primordial")."""
+    det = PanicDetector(_cfg())  # detectar_de_costas=True por padrão
+    evs = []
+    t = 0.0
+    while t < 3.0:
+        evs += det.update([_pose_de_costas(1, True)], round(t, 3))
+        t += 0.2
+    assert len(evs) == 1
+
+
+def test_de_costas_desligado_explicito_nao_dispara():
+    """Desligar explicitamente (uma câmera de teto problemática) volta ao modo
+    nariz — de costas não dispara."""
+    det = PanicDetector(_cfg(detectar_de_costas=False))
     evs = []
     t = 0.0
     while t < 3.0:
