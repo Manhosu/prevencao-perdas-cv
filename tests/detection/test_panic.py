@@ -91,6 +91,48 @@ def test_cooldown_nao_redispara_em_seguida():
     assert len(evs) == 1  # dispara 1 vez, não a cada frame
 
 
+def test_mao_no_cabelo_nao_dispara():
+    """Bug de campo (04/nov): coçar a cabeça / arrumar o cabelo disparava
+    pânico. As duas mãos sobem ATÉ a cabeça (na altura do rosto, acima do
+    nariz), mas não estão ERGUIDAS. Isso não é rendição e não pode disparar."""
+    det = PanicDetector(_cfg())
+    kp = np.zeros((17, 3), np.float32)
+    kp[KP["nose"]] = [100, 100, 0.9]
+    kp[KP["left_shoulder"]] = [75, 135, 0.9]   # largura 50
+    kp[KP["right_shoulder"]] = [125, 135, 0.9]
+    # mãos no cabelo: punhos na altura da cabeça (y≈90), logo acima do nariz
+    # mas longe de "braços pra cima" (margem = 0.5*50 = 25 → limite y=75)
+    kp[KP["left_wrist"]] = [85, 90, 0.9]
+    kp[KP["right_wrist"]] = [115, 90, 0.9]
+    p = PersonDetection(bbox=BBox(70, 80, 130, 320), conf=0.9, track_id=1)
+    evs = []
+    t = 0.0
+    while t < 5.0:
+        evs += det.update([PersonPose(person=p, keypoints=kp)], round(t, 3))
+        t += 0.2
+    assert evs == []
+
+
+def test_bracos_erguidos_acima_do_cabelo_dispara():
+    """A rendição de verdade: braços pra cima, punhos bem acima da cabeça —
+    passa da margem e dispara, mesmo com a mesma pessoa/câmera do teste do
+    cabelo."""
+    det = PanicDetector(_cfg())
+    kp = np.zeros((17, 3), np.float32)
+    kp[KP["nose"]] = [100, 100, 0.9]
+    kp[KP["left_shoulder"]] = [75, 135, 0.9]
+    kp[KP["right_shoulder"]] = [125, 135, 0.9]
+    kp[KP["left_wrist"]] = [80, 45, 0.9]    # bem acima (limite y=75): 45 < 75
+    kp[KP["right_wrist"]] = [120, 45, 0.9]
+    p = PersonDetection(bbox=BBox(70, 30, 130, 320), conf=0.9, track_id=1)
+    evs = []
+    t = 0.0
+    while t < 3.0:
+        evs += det.update([PersonPose(person=p, keypoints=kp)], round(t, 3))
+        t += 0.2
+    assert len(evs) == 1
+
+
 def test_maos_com_baixa_confianca_nao_dispara():
     """Pose ruim (punhos com conf baixa) não gera pânico fantasma."""
     det = PanicDetector(_cfg())

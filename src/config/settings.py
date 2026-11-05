@@ -177,6 +177,10 @@ class PanicConfig(_Strict):
     # câmera na altura da pessoa (atrás do caixa); em câmera de teto gera falso
     # positivo. Ver src/detection/panic.py.
     detectar_de_costas: bool = False
+    # Quão acima da cabeça as duas mãos precisam estar (fração da largura dos
+    # ombros) para contar como rendição — separa "mão no cabelo" de braço
+    # erguido. Ver src/detection/panic.py.
+    maos_acima_margem: float = Field(default=0.5, ge=0.0, le=2.0)
 
 
 class WeaponConfig(_Strict):

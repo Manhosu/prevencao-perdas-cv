@@ -46,6 +46,13 @@ class PanicConfig:
     # caixa, onde o corpo aparece em pé. Mesmo ligado, a guarda de "em pé"
     # (ombros claramente acima dos quadris) evita o falso de teto.
     detectar_de_costas: bool = False
+    # Quão acima da cabeça as DUAS mãos precisam estar, em frações da largura
+    # dos ombros, para contar como rendição. Relato de campo (04/nov): coçar a
+    # cabeça / arrumar o cabelo disparava pânico, porque a mão no cabelo fica
+    # na altura do rosto — acima do nariz, mas NÃO erguida. A margem separa
+    # "mão no cabelo" (punho na altura da cabeça) de "braços erguidos" (punho
+    # bem acima). 0 reproduz o comportamento antigo (só passar da cabeça).
+    maos_acima_margem: float = 0.5
 
 
 @dataclass
@@ -108,11 +115,23 @@ class PanicDetector:
             return None  # tronco não está vertical (câmera de teto): não dispara
         return ombro_y - self.cfg.head_above_shoulder * largura
 
+    def _largura_ombros(self, kp) -> float | None:
+        """Largura dos ombros em pixels — escala do corpo para medir 'quão
+        acima' da cabeça as mãos estão. None se os ombros não aparecem."""
+        c = self.cfg.wrist_conf_min
+        ls, rs = kp[LSHOULDER], kp[RSHOULDER]
+        if ls[2] < c or rs[2] < c:
+            return None
+        largura = abs(float(ls[0]) - float(rs[0]))
+        return largura if largura >= 1.0 else None
+
     def _maos_acima(self, kp) -> bool:
-        """True se AS DUAS mãos estão acima da cabeça, com confiança
-        suficiente. Uma mão só não conta — acenar ou pegar produto na
-        prateleira alta não é pânico. Funciona de frente e de costas (ver
-        `_linha_da_cabeca`)."""
+        """True se AS DUAS mãos estão CLARAMENTE acima da cabeça. Uma mão só
+        não conta (acenar, pegar algo na prateleira alta). E 'claramente' é o
+        ponto: a mão precisa estar erguida, não só na altura do rosto — coçar
+        a cabeça ou arrumar o cabelo põe o punho na linha da cabeça e NÃO é
+        rendição (relato de campo 04/nov). Funciona de frente e de costas
+        (ver `_linha_da_cabeca`)."""
         c = self.cfg.wrist_conf_min
         lw, rw = kp[LWRIST], kp[RWRIST]
         if lw[2] < c or rw[2] < c:
@@ -120,7 +139,13 @@ class PanicDetector:
         cabeca = self._linha_da_cabeca(kp)
         if cabeca is None:
             return False
-        return lw[1] < cabeca and rw[1] < cabeca
+        # Exige as mãos ACIMA da cabeça por uma margem (fração da largura dos
+        # ombros): é o que separa braço erguido de mão no cabelo. Sem escala
+        # dos ombros, cai no comportamento antigo (só passar da cabeça).
+        largura = self._largura_ombros(kp)
+        margem = self.cfg.maos_acima_margem * largura if largura else 0.0
+        limite = cabeca - margem
+        return lw[1] < limite and rw[1] < limite
 
     def update(self, poses: list[PersonPose], ts: float) -> list[PanicEvent]:
         events: list[PanicEvent] = []

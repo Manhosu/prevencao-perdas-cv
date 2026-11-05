@@ -72,6 +72,7 @@ class Pipeline:
                         track_lost_seconds=pc.track_lost_seconds,
                         head_above_shoulder=pc.head_above_shoulder,
                         detectar_de_costas=pc.detectar_de_costas,
+                        maos_acima_margem=pc.maos_acima_margem,
                     )
                 )
             else:
