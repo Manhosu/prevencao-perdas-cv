@@ -100,10 +100,10 @@ def test_mao_no_cabelo_nao_dispara():
     kp[KP["nose"]] = [100, 100, 0.9]
     kp[KP["left_shoulder"]] = [75, 135, 0.9]   # largura 50
     kp[KP["right_shoulder"]] = [125, 135, 0.9]
-    # mãos no cabelo: punhos na altura da cabeça (y≈90), logo acima do nariz
-    # mas longe de "braços pra cima" (margem = 0.5*50 = 25 → limite y=75)
-    kp[KP["left_wrist"]] = [85, 90, 0.9]
-    kp[KP["right_wrist"]] = [115, 90, 0.9]
+    # mãos no cabelo: punhos colados na cabeça (y≈95), logo acima do nariz mas
+    # longe de "braços pra cima" (margem 0.25*50 = 12.5 → limite y=87.5)
+    kp[KP["left_wrist"]] = [85, 95, 0.9]
+    kp[KP["right_wrist"]] = [115, 95, 0.9]
     p = PersonDetection(bbox=BBox(70, 80, 130, 320), conf=0.9, track_id=1)
     evs = []
     t = 0.0
@@ -113,17 +113,17 @@ def test_mao_no_cabelo_nao_dispara():
     assert evs == []
 
 
-def test_bracos_erguidos_acima_do_cabelo_dispara():
-    """A rendição de verdade: braços pra cima, punhos bem acima da cabeça —
-    passa da margem e dispara, mesmo com a mesma pessoa/câmera do teste do
-    cabelo."""
+def test_gesto_modesto_de_frente_dispara():
+    """Rendição real, mas MODESTA: mãos pra cima com o cotovelo dobrado, punhos
+    só um pouco acima da cabeça — o caso comum do caixa. Com margem 0.5 isso
+    NÃO disparava (regressão de campo 09/nov); com 0.25 dispara."""
     det = PanicDetector(_cfg())
     kp = np.zeros((17, 3), np.float32)
     kp[KP["nose"]] = [100, 100, 0.9]
     kp[KP["left_shoulder"]] = [75, 135, 0.9]
     kp[KP["right_shoulder"]] = [125, 135, 0.9]
-    kp[KP["left_wrist"]] = [80, 45, 0.9]    # bem acima (limite y=75): 45 < 75
-    kp[KP["right_wrist"]] = [120, 45, 0.9]
+    kp[KP["left_wrist"]] = [80, 78, 0.9]    # 22px acima do nariz (limite y=87.5)
+    kp[KP["right_wrist"]] = [120, 78, 0.9]
     p = PersonDetection(bbox=BBox(70, 30, 130, 320), conf=0.9, track_id=1)
     evs = []
     t = 0.0

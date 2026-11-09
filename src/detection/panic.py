@@ -55,7 +55,13 @@ class PanicConfig:
     # na altura do rosto — acima do nariz, mas NÃO erguida. A margem separa
     # "mão no cabelo" (punho na altura da cabeça) de "braços erguidos" (punho
     # bem acima). 0 reproduz o comportamento antigo (só passar da cabeça).
-    maos_acima_margem: float = 0.5
+    #
+    # 0.25 (não 0.5): com 0.5 um gesto REAL modesto — mãos pra cima com o
+    # cotovelo dobrado, punhos pouco acima da cabeça, o caso comum do caixa —
+    # não cruzava a margem e NÃO disparava (relato de campo 09/nov: câmera na
+    # altura, antes pegava, parou). 0.25 ainda barra a mão parada no cabelo
+    # mas deixa o gesto real passar. O valor fino se mede com vídeo da câmera.
+    maos_acima_margem: float = 0.25
 
 
 @dataclass

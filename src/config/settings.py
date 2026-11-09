@@ -180,8 +180,8 @@ class PanicConfig(_Strict):
     detectar_de_costas: bool = True
     # Quão acima da cabeça as duas mãos precisam estar (fração da largura dos
     # ombros) para contar como rendição — separa "mão no cabelo" de braço
-    # erguido. Ver src/detection/panic.py.
-    maos_acima_margem: float = Field(default=0.5, ge=0.0, le=2.0)
+    # erguido. 0.25: 0.5 bloqueava gesto real modesto. Ver src/detection/panic.py.
+    maos_acima_margem: float = Field(default=0.25, ge=0.0, le=2.0)
 
 
 class WeaponConfig(_Strict):
